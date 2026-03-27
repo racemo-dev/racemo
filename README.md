@@ -154,19 +154,6 @@ npm run build
 npx playwright test
 ```
 
-## Pricing
-
-Racemo is **free forever** for local use.
-
-| | Free | Pro ($8/mo) |
-|---|---|---|
-| Local terminal | Unlimited | Unlimited |
-| Session persistence | Yes | Yes |
-| GUI panel management | Yes | Yes |
-| Shared sessions | 1 | 5 |
-| Remote connections | 1 | 5 |
-| Relay server (NAT) | — | Yes |
-| Priority support | — | Yes |
 
 ## FAQ
 
