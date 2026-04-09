@@ -10,14 +10,14 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/racemo-dev/racemo-client/releases/latest">Download</a> ·
+  <a href="https://github.com/racemo-dev/racemo/releases/latest">Download</a> ·
   <a href="docs/FEATURES.md">Features</a> ·
   <a href="docs/ARCHITECTURE.md">Architecture</a>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License" />
-  <img src="https://img.shields.io/badge/version-0.0.1-violet" alt="Version" />
+  <img src="https://img.shields.io/badge/version-0.0.5-violet" alt="Version" />
   <img src="https://img.shields.io/badge/status-Developer%20Preview-orange" alt="Status" />
   <img src="https://img.shields.io/badge/built%20with-Rust%20%2B%20Tauri-orange" alt="Built with" />
 </p>
@@ -36,17 +36,36 @@ Racemo keeps your terminal sessions alive and passes them seamlessly across Wind
 
 **Remote Access** — Connect from your MacBook to your Windows desktop via secure WebRTC P2P. No port forwarding, no SSH keys. End-to-end encrypted.
 
-## Download
+## Install
 
-Get the latest version from the [Releases](https://github.com/racemo-dev/racemo-client/releases) page.
+### macOS
 
-| Platform | Architecture | File |
-|----------|-------------|------|
-| Windows (installer) | x86_64 | `Racemo_x.x.x_x64-setup.exe` |
-| Windows (MSI) | x86_64 | `Racemo_x.x.x_x64.msi` |
-| macOS (DMG) | Universal (arm64 + x86_64) | `Racemo_x.x.x_universal.dmg` |
-| Linux (AppImage) | x86_64 | `Racemo_x.x.x_amd64.AppImage` |
-| Linux (deb) | x86_64 | `Racemo_x.x.x_amd64.deb` |
+```bash
+brew tap racemo-dev/tap && brew install --cask racemo
+```
+
+Or download `Racemo_x.x.x_Mac.dmg` from [Releases](https://github.com/racemo-dev/racemo/releases/latest).
+
+### Windows
+
+Download `Racemo_x.x.x_Windows_x64-setup.exe` from [Releases](https://github.com/racemo-dev/racemo/releases/latest).
+
+### Linux
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/racemo-dev/racemo/main/install.sh | sh
+```
+
+Or download the AppImage manually from [Releases](https://github.com/racemo-dev/racemo/releases/latest).
+
+| Platform | File |
+|----------|------|
+| macOS (Universal) | `Racemo_x.x.x_Mac.dmg` |
+| Windows | `Racemo_x.x.x_Windows_x64-setup.exe` |
+| Linux x64 | `Racemo_x.x.x_Linux_x64.AppImage` |
+| Linux ARM64 | `Racemo_x.x.x_Linux_aarch64.AppImage` |
+
+All platforms include automatic updates.
 
 ## Tech Stack
 
