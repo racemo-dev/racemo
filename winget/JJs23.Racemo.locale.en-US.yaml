@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.10.0.schema.json
+
+PackageIdentifier: JJs23.Racemo
+PackageVersion: 0.0.3
+PackageLocale: en-US
+Publisher: racemo-dev
+PublisherUrl: https://github.com/racemo-dev/racemo
+PackageName: Racemo
+PackageUrl: https://github.com/racemo-dev/racemo
+License: Apache-2.0
+LicenseUrl: https://github.com/racemo-dev/racemo/blob/main/LICENSE
+ShortDescription: GUI Terminal Multiplexer built with Tauri
+Tags:
+  - terminal
+  - multiplexer
+  - developer-tools
+  - tauri
+ManifestType: defaultLocale
+ManifestVersion: 1.10.0

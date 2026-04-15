@@ -1,0 +1,119 @@
+syntax = "proto3";
+package racemo.remote;
+
+// Data Channel 양방향 메시지 (Host ↔ Remote Client)
+message RemoteMessage {
+  oneof payload {
+    TerminalInput terminal_input = 1;
+    TerminalOutput terminal_output = 2;
+    ResizeRequest resize_request = 3;
+    SessionListRequest session_list_request = 4;
+    SessionListResponse session_list_response = 5;
+    SessionSelectRequest session_select = 6;
+    SessionSelectResponse session_select_response = 7;
+    ConnectionRequest connection_request = 8;
+    ConnectionResponse connection_response = 9;
+    Heartbeat heartbeat = 10;
+    Disconnect disconnect = 11;
+    LayoutUpdate layout_update = 12;
+    SplitPaneRequest split_pane_request = 13;
+    ClosePaneRequest close_pane_request = 14;
+    ApiRequest api_request = 15;
+    ApiResponse api_response = 16;
+  }
+}
+
+// PTY I/O
+message TerminalInput {
+  string pty_id = 1;
+  bytes data = 2;
+}
+
+message TerminalOutput {
+  string pty_id = 1;
+  bytes data = 2;
+}
+
+message ResizeRequest {
+  string pty_id = 1;
+  uint32 cols = 2;
+  uint32 rows = 3;
+}
+
+// Session management
+message SessionListRequest {}
+
+message SessionListResponse {
+  repeated SessionInfo sessions = 1;
+}
+
+message SessionInfo {
+  string id = 1;
+  string name = 2;
+  uint32 pane_count = 3;
+  int64 created_at = 4;
+  repeated string pane_ids = 5;
+  string layout_json = 6;
+}
+
+message SessionSelectRequest {
+  string session_id = 1;
+}
+
+message SessionSelectResponse {
+  bool success = 1;
+  string error = 2;
+  string layout_json = 3;
+}
+
+// Connection control
+message ConnectionRequest {
+  string client_name = 1;
+  string client_id = 2;
+}
+
+message ConnectionResponse {
+  bool approved = 1;
+  string host_name = 2;
+  string error = 3;
+}
+
+message Heartbeat {
+  int64 timestamp = 1;
+}
+
+message Disconnect {
+  string reason = 1;
+}
+
+message LayoutUpdate {
+  string session_id = 1;
+  string layout_json = 2;
+  uint32 pane_count = 3;
+}
+
+message SplitPaneRequest {
+  string session_id = 1;
+  string pane_id = 2;
+  string direction = 3;
+  bool before = 4;
+}
+
+message ClosePaneRequest {
+  string session_id = 1;
+  string pane_id = 2;
+}
+
+// Generic API request/response for Explorer and Git panel (tunneled over DC).
+// params_json / result_json carry JSON-encoded data to keep proto schema simple.
+message ApiRequest {
+  string request_id = 1;
+  string method = 2;      // "home_dir" | "list_dir" | "git_info" | "git_status" | "git_action" | "git_diff"
+  string params_json = 3; // JSON object with method-specific params
+}
+
+message ApiResponse {
+  string request_id = 1;
+  string result_json = 2; // JSON-encoded result on success
+  string error = 3;       // non-empty on failure
+}

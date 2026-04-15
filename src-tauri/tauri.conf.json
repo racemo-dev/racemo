@@ -1,0 +1,67 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Racemo",
+  "version": "0.0.8",
+  "identifier": "com.racemo.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://127.0.0.1:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "visible": false,
+        "title": "",
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "trafficLightPosition": {
+          "x": 12,
+          "y": 18
+        },
+        "transparent": true,
+        "devtools": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: https:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:7399 ws://127.0.0.1:7399 wss://racemo-signal.fly.dev https://api.github.com"
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": "(https?://|file://|mailto:|/).*"
+    },
+    "updater": {
+      "endpoints": [
+        "https://github.com/racemo-dev/racemo/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI3NUQxQjI4OTk2RkQwRjkKUlVUNTBHK1pLQnRkdDRPVG1jLzVubkdPTWg5WDNFdHRFZHVTMHdpcC9jSzR6cE5wZUZYWk5yRHQK"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "externalBin": [],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "signingIdentity": "-",
+      "entitlements": "Entitlements.plist"
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "installer.nsh"
+      }
+    }
+  }
+}

@@ -1,42 +1,86 @@
 <p align="center">
-  <img src="public/racemo-icon.png" alt="Racemo" width="80" />
+  <img src="src-tauri/icons/icon.png" alt="Racemo" width="80" />
 </p>
 
 <h1 align="center">Racemo</h1>
 
 <p align="center">
-  <strong>Your terminal. Anytime, anywhere.</strong><br/>
-  A cross-platform GUI terminal multiplexer with persistent sessions and secure remote access.
+  <strong>Made this because Windows doesn't have a decent multi-session terminal.</strong><br/>
+  Sessions stay alive across app restarts — close, reopen, pick up where you left off.<br/>
+  Share a session across your devices in one click.<br/>
+  Windows / macOS / Linux.
 </p>
 
 <p align="center">
-  <a href="https://github.com/racemo-dev/racemo/releases/latest">Download</a> ·
-  <a href="docs/FEATURES.md">Features</a> ·
-  <a href="docs/ARCHITECTURE.md">Architecture</a>
+  <img src="https://github.com/user-attachments/assets/7bd33557-b863-4796-9797-dc7160ab2cfb" alt="Racemo demo" />
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License" />
-  <img src="https://img.shields.io/badge/version-0.0.5-violet" alt="Version" />
+  <a href="https://github.com/racemo-dev/racemo/actions/workflows/pr-check.yml"><img src="https://github.com/racemo-dev/racemo/actions/workflows/pr-check.yml/badge.svg" alt="Build" /></a>
+  <a href="https://github.com/racemo-dev/racemo/releases/latest"><img src="https://img.shields.io/github/v/release/racemo-dev/racemo?color=violet&label=version" alt="Version" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/racemo-dev/racemo" alt="License" /></a>
   <img src="https://img.shields.io/badge/status-Developer%20Preview-orange" alt="Status" />
-  <img src="https://img.shields.io/badge/built%20with-Rust%20%2B%20Tauri-orange" alt="Built with" />
+  <a href="https://github.com/racemo-dev/racemo/stargazers"><img src="https://img.shields.io/github/stars/racemo-dev/racemo?style=social" alt="Stars" /></a>
+  <br/>
+  <a href="https://github.com/racemo-dev/racemo/releases/latest">Download</a> · <a href="#build-from-source">Build from Source</a> · <a href="CONTRIBUTING.md">Contribute</a>
 </p>
 
 ---
 
-## What is Racemo?
+## Features
 
-Racemo keeps your terminal sessions alive and passes them seamlessly across Windows, macOS, and Linux. No more losing your workspace after a reboot. No more memorizing tmux shortcuts.
+### Terminal
+- Multi-pane layout with horizontal/vertical splitting and drag-to-resize
+- Multiple tabs with quick switching (`Alt+1~9`)
+- Multi-pane broadcast — type once, send keystrokes to every pane at the same time (`Cmd+B`)
+- Command palette (`Cmd+K`) and history search (`Cmd+R`)
+- Shell autocomplete and command snippets with `{{variable}}` placeholders — save `ssh {{user}}@{{host}}` once, reuse forever
 
-### Three core values
+<p align="center">
+  <img src="assets/editor.png" alt="Terminal with code editor" width="80%" />
+</p>
 
-**Easy Terminal** — Split, resize, and rearrange panels with drag and drop. Zero config, full ANSI/Unicode/24-bit color support out of the box.
+### Editor & Git
+- Inline code editor with syntax highlighting
+- Markdown viewer with source/wysiwyg toggle
+- File explorer with search and file operations
+- Git staging, diff viewer, branch management
 
-**Persistent Sessions** — A background Rust daemon keeps your PTY sessions alive independently of the GUI. Close the app, reopen it — everything is exactly where you left it. Fully native on Windows.
+<p align="center">
+  <img src="assets/worktree.png" alt="Git worktree and diff viewer" width="49%" />
+  <img src="assets/markdown.png" alt="Markdown viewer" width="49%" />
+</p>
 
-**Remote Access** — Connect from your MacBook to your Windows desktop via secure WebRTC P2P. No port forwarding, no SSH keys. End-to-end encrypted.
+### Remote
+- Share terminal across your devices via GitHub account (WebRTC P2P)
+- One-click share from the title bar — no port forwarding, no SSH keys
+- Signaling relay hosted by Racemo; all terminal data is peer-to-peer
+- Persistent sessions travel with you — open the same session from any device
+
+<p align="center">
+  <img src="assets/remote.png" alt="Remote access across devices" width="80%" />
+</p>
+
+> **Note:** Remote features use a hosted signaling relay (`racemo-signal.fly.dev`) for WebRTC connection setup. The signaling server is a closed-source hosted service and is not part of this repository. Terminal data after the initial handshake is fully peer-to-peer.
+
+### AI
+- Error explainer — when a command fails, get the root cause and a suggested fix inline
+- Commit message generator — drafts a Conventional Commits message from your staged diff
+- One-click AI commit — writes the message and commits in a single action
+- Unified session logs — aggregates Claude, Codex, Gemini, OpenCode sessions into one searchable timeline
+
+<p align="center">
+  <img src="assets/ai.png" alt="AI error explainer and commit generator" width="80%" />
+</p>
+
+### Privacy & Customization
+- Secret masking for API keys and tokens (`Cmd+Shift+M`)
+- Multiple built-in themes (light / dark / custom)
+- Configurable fonts, UI scale, and default shell
 
 ## Install
+
+Download from the [Releases](https://github.com/racemo-dev/racemo/releases/latest) page.
 
 ### macOS
 
@@ -44,159 +88,103 @@ Racemo keeps your terminal sessions alive and passes them seamlessly across Wind
 brew tap racemo-dev/tap && brew install --cask racemo
 ```
 
-Or download `Racemo_x.x.x_Mac.dmg` from [Releases](https://github.com/racemo-dev/racemo/releases/latest).
+Or download the `.dmg` directly from the [Releases](https://github.com/racemo-dev/racemo/releases/latest) page.
 
 ### Windows
 
-Download `Racemo_x.x.x_Windows_x64-setup.exe` from [Releases](https://github.com/racemo-dev/racemo/releases/latest).
+Download `Racemo_x.x.x_Windows_x64-setup.exe` from the [Releases](https://github.com/racemo-dev/racemo/releases/latest) page.
 
 ### Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/racemo-dev/racemo/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/racemo-dev/racemo/main/install_linux.sh | sh
 ```
 
 Or download the AppImage manually from [Releases](https://github.com/racemo-dev/racemo/releases/latest).
 
-| Platform | File |
-|----------|------|
-| macOS (Universal) | `Racemo_x.x.x_Mac.dmg` |
-| Windows | `Racemo_x.x.x_Windows_x64-setup.exe` |
-| Linux x64 | `Racemo_x.x.x_Linux_x64.AppImage` |
-| Linux ARM64 | `Racemo_x.x.x_Linux_aarch64.AppImage` |
-
 All platforms include automatic updates.
 
-## Tech Stack
+## Comparison
 
-| Layer | Technology |
-|-------|-----------|
-| Desktop App | [Tauri v2](https://tauri.app) |
-| Frontend | React 19, TypeScript, Tailwind CSS v4 |
-| Terminal | [xterm.js](https://xtermjs.org) v6 (WebGL) |
-| Backend | Rust, [portable-pty](https://docs.rs/portable-pty), Tokio |
-| IPC | MessagePack over Unix Socket / Named Pipe |
-| Remote | WebRTC (P2P), Protobuf, DTLS/SCTP |
-| State | Zustand |
+| | tmux / screen | iTerm2 / Windows Terminal | Warp | **Racemo** |
+|---|---|---|---|---|
+| Persistent sessions | CLI only | No | No | Yes — daemon keeps PTY alive |
+| Cross-platform | Linux / macOS | Single OS | Windows / macOS / Linux | Windows / macOS / Linux |
+| GUI pane management | Keyboard only | Basic | Yes | Yes |
+| Built-in editor & git | No | No | Partial | Yes |
+| Remote access | SSH required | No | Cloud (account) | P2P WebRTC via hosted relay |
+
+## Keyboard Shortcuts
+
+> `Cmd` on macOS, `Ctrl` on Windows/Linux.
+
+| Shortcut | Action |
+|----------|--------|
+| `Cmd+T` | New tab |
+| `Cmd+Q` | Close active tab |
+| `Cmd+B` | Toggle broadcast mode |
+| `Cmd+K` | Command palette |
+| `Cmd+R` | History search |
+| `Cmd+F` | Search |
+| `Cmd+Shift+E` | Toggle Explorer sidebar |
+| `Cmd+Shift+F` | Toggle Search sidebar |
+| `Cmd+Shift+G` | Toggle Source Control sidebar |
+| `Cmd+Shift+H` | Toggle AI History sidebar |
+| `Cmd+Shift+L` | Toggle AI Logs sidebar |
+| `Cmd+,` | Open Settings |
+| `Cmd+Shift+M` | Toggle secret masking |
+| `Cmd+=` / `Cmd+-` / `Cmd+0` | Font size |
+| `Alt+1~9` | Switch to tab by index |
 
 ## Architecture
 
 ```
-┌─ Tauri Client (React + TypeScript) ─────────────┐
-│  xterm.js terminals  ·  GUI panel layout (binary │
-│  tree)  ·  Sidebar (sessions, SSH, files)        │
-└──────────────────────────────────────────────────┘
-              ↕  IPC (MessagePack)
-         Unix Socket / Named Pipe
-┌──────────────────────────────────────────────────┐
-│  Racemo Server (Rust Daemon)                     │
-│  PTY manager  ·  Session persistence  ·  WebRTC  │
-│  host  ·  Built-in CLI tools                     │
-└──────────────────────────────────────────────────┘
-              ↕  Shell
-         bash / zsh / pwsh / ssh
+┌─────────────────────────────────────────────┐
+│              React + xterm.js               │  Frontend (TypeScript)
+├─────────────────────────────────────────────┤
+│              Tauri IPC Bridge               │  Commands & Events
+├──────────────────────┬──────────────────────┤
+│    Tauri App (Rust)  │  racemo-server (Rust)│  Two binaries
+│    GUI + Commands    │  PTY + Sessions      │
+├──────────────────────┴──────────────────────┤
+│     Unix Socket / Named Pipe (MsgPack)      │  IPC Protocol
+├─────────────────────────────────────────────┤
+│          OS PTY (posix / ConPTY)            │  Platform Layer
+└─────────────────────────────────────────────┘
 ```
 
-See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
-
-## Project Structure
-
-```
-racemo/
-├── src/                        # React + TypeScript frontend
-│   ├── components/
-│   │   ├── Auth/               # Authentication
-│   │   ├── Billing/            # Subscription & billing
-│   │   ├── CommandPalette/     # Ctrl+Shift+P command palette
-│   │   ├── Editor/             # Built-in editor
-│   │   ├── Layout/             # Panel layout engine
-│   │   ├── Sidebar/            # Session & SSH sidebar
-│   │   ├── Terminal/           # xterm.js terminal wrapper
-│   │   └── ...
-│   ├── lib/                    # Utilities
-│   │   ├── completionEngine.ts # Smart autocomplete
-│   │   ├── linkDetector.ts     # Clickable links/paths
-│   │   ├── ptyOutputBuffer.ts  # PTY output processing
-│   │   ├── remoteWebrtc.ts     # WebRTC client
-│   │   ├── secretDetector.ts   # API key masking
-│   │   └── ...
-│   └── stores/                 # Zustand state management
-├── src-tauri/                  # Tauri + Rust backend
-│   └── src/
-│       ├── commands/           # Tauri IPC commands
-│       ├── ipc/                # Named Pipe / Unix Socket server
-│       ├── remote/             # WebRTC host, pairing, signaling
-│       ├── bin/
-│       │   └── racemo_server.rs # Background daemon
-│       ├── layout.rs           # Binary tree panel layout
-│       ├── session.rs          # Session management
-│       ├── persistence.rs      # Session restore
-│       └── ...
-├── signaling-server/           # WebRTC signaling server (Rust)
-├── web-client/                 # Browser-based remote client
-├── proto/                      # Protobuf definitions
-├── docs/                       # Documentation
-└── tests/                      # Playwright E2E tests
-```
-
-## Getting Started
+## Build from Source
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org) 20+
-- [Rust](https://rustup.rs) 1.75+
-- Platform-specific Tauri dependencies ([guide](https://v2.tauri.app/start/prerequisites/))
+- Node.js 20+
+- Rust 1.75+
+- Platform-specific Tauri v2 dependencies ([see Tauri docs](https://v2.tauri.app/start/prerequisites/))
 
-### Development
-
-```bash
-npm install
-npm run tauri dev
-```
-
-### Testing
+### Steps
 
 ```bash
-# Rust backend tests
-cd src-tauri && cargo test
-
-# Signaling server tests
-cd signaling-server && cargo test
-
-# Lint
-cargo clippy
-
-# Frontend build check
-npm run build
-
-# E2E tests
-npx playwright test
+git clone https://github.com/racemo-dev/racemo.git
+cd racemo
+npm ci                  # Install dependencies (lockfile-based)
+npm run tauri:dev       # Development mode
+npm run tauri:build     # Production build
 ```
 
+`npm run tauri:dev` starts the Vite dev server on port `5173`. If that port is already in use, stop the existing process or update the Vite dev server port and the matching Tauri `devUrl` in `src-tauri/tauri.conf.json`.
 
-## FAQ
+## Roadmap
 
-### Windows SmartScreen Warning
+- [ ] **Telegram integration** — session notifications and remote commands via Telegram bot
+- [ ] Process manager — highlight dev server ports, one-click kill
+- [ ] Prompt-to-prompt jump & command separator with execution time
+- [ ] Exit code badge (success/failure at a glance)
 
-You may see a Windows SmartScreen warning when installing Racemo. This is normal for newly released applications that haven't yet accumulated a large number of downloads.
-
-**To proceed with installation:**
-1. Click **"More info"**
-2. Click **"Run anyway"**
-
-The installer is digitally signed with a verified Certum Code Signing (OV) certificate. You can confirm the signature by right-clicking the installer → **Properties** → **Digital Signatures** tab.
-
-### Why does SmartScreen show a warning?
-
-Windows SmartScreen builds reputation based on download volume. New applications — even those with valid code signing certificates — may trigger a warning until enough users have downloaded and installed them. This is expected behavior and not a security issue.
-
-### How can I verify the installer is authentic?
-
-Right-click the `.exe` file → **Properties** → **Digital Signatures** tab. You should see **"Racemo"** listed as the signer with a valid certificate issued by Certum.
+See [Issues](https://github.com/racemo-dev/racemo/issues) for detailed plans and discussion.
 
 ## Contributing
 
-Contributions are welcome! Please open an issue or submit a pull request.
+See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## License
 

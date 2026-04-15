@@ -1,0 +1,76 @@
+{
+  "name": "docker",
+  "subcommands": {
+    "run": {
+      "description": "Create and run a container",
+      "options": [
+        { "name": "--detach", "alias": "-d", "description": "Run in background" },
+        { "name": "--interactive", "alias": "-i", "description": "Keep STDIN open" },
+        { "name": "--tty", "alias": "-t", "description": "Allocate a pseudo-TTY" },
+        { "name": "--rm", "description": "Remove container on exit" },
+        { "name": "--name", "description": "Assign a name", "takesArg": true },
+        { "name": "--publish", "alias": "-p", "description": "Publish port", "takesArg": true },
+        { "name": "--volume", "alias": "-v", "description": "Bind mount volume", "takesArg": true },
+        { "name": "--env", "alias": "-e", "description": "Set environment variable", "takesArg": true }
+      ]
+    },
+    "build": {
+      "description": "Build an image",
+      "options": [
+        { "name": "--tag", "alias": "-t", "description": "Name and tag", "takesArg": true },
+        { "name": "--file", "alias": "-f", "description": "Dockerfile path", "takesArg": true },
+        { "name": "--no-cache", "description": "Do not use cache" }
+      ]
+    },
+    "ps": {
+      "description": "List containers",
+      "options": [
+        { "name": "--all", "alias": "-a", "description": "Show all containers" },
+        { "name": "--quiet", "alias": "-q", "description": "Only display IDs" }
+      ]
+    },
+    "images": { "description": "List images" },
+    "pull": { "description": "Download an image" },
+    "push": { "description": "Upload an image" },
+    "exec": {
+      "description": "Run command in container",
+      "options": [
+        { "name": "--interactive", "alias": "-i", "description": "Keep STDIN open" },
+        { "name": "--tty", "alias": "-t", "description": "Allocate TTY" }
+      ]
+    },
+    "stop": { "description": "Stop containers" },
+    "start": { "description": "Start containers" },
+    "rm": { "description": "Remove containers", "options": [{ "name": "--force", "alias": "-f", "description": "Force removal" }] },
+    "rmi": { "description": "Remove images" },
+    "logs": { "description": "Fetch container logs", "options": [{ "name": "--follow", "alias": "-f", "description": "Follow log output" }] },
+    "compose": {
+      "description": "Docker Compose",
+      "subcommands": {
+        "up": { "description": "Create and start services", "options": [{ "name": "--detach", "alias": "-d", "description": "Detached mode" }, { "name": "--build", "description": "Build images" }] },
+        "down": { "description": "Stop and remove", "options": [{ "name": "--volumes", "alias": "-v", "description": "Remove volumes" }] },
+        "build": { "description": "Build services" },
+        "logs": { "description": "View logs", "options": [{ "name": "--follow", "alias": "-f", "description": "Follow output" }] },
+        "ps": { "description": "List containers" },
+        "restart": { "description": "Restart services" },
+        "exec": { "description": "Execute in service" }
+      }
+    },
+    "network": {
+      "description": "Manage networks",
+      "subcommands": {
+        "ls": { "description": "List networks" },
+        "create": { "description": "Create a network" },
+        "rm": { "description": "Remove network" }
+      }
+    },
+    "volume": {
+      "description": "Manage volumes",
+      "subcommands": {
+        "ls": { "description": "List volumes" },
+        "create": { "description": "Create a volume" },
+        "rm": { "description": "Remove volume" }
+      }
+    }
+  }
+}

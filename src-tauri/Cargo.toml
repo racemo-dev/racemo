@@ -1,0 +1,90 @@
+[package]
+name = "racemo"
+version = "0.0.8"
+description = "GUI Terminal Multiplexer"
+authors = ["junghoyu"]
+license = "Apache-2.0"
+edition = "2021"
+rust-version = "1.80"
+default-run = "racemo"
+
+[lib]
+name = "racemo_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "racemo-server"
+path = "src/bin/racemo_server.rs"
+
+[features]
+default = ["devtools"]
+devtools = ["tauri/devtools"]
+
+[build-dependencies]
+tauri-build = { version = "2.5.4", features = [] }
+prost-build = "0.13"
+protox = "0.7"
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = { version = "0.4", features = ["release_max_level_info"] }
+tauri = { version = "2.10.0", features = ["unstable"] }
+tauri-plugin-log = "2"
+tauri-plugin-shell = "2"
+portable-pty = "0.8"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+thiserror = "1"
+parking_lot = "0.12"
+rmp-serde = "1"
+anyhow = "1"
+env_logger = "0.11"
+chrono = { version = "0.4", features = ["clock"] }
+tauri-plugin-notification = "2.3.3"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-dialog = "2"
+dirs = "5"
+image = { version = "0.25", default-features = false, features = ["png"] }
+prost = "0.13"
+reqwest = { version = "0.12", features = ["json", "stream"] }
+tauri-plugin-store = "2"
+tauri-plugin-process = "2"
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+rand = "0.8"
+trash = "5"
+machine-uid = "0.5"
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+rusqlite = { version = "0.31", features = ["bundled"] }
+minisign-verify = "0.2"
+axum = "0.7"
+tower-http = { version = "0.5", features = ["cors"] }
+futures-util = "0.3"
+webrtc = "0.11"
+bytes = "1"
+notify = "7"
+notify-debouncer-mini = "0.5"
+
+[dev-dependencies]
+tempfile = "3"
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", features = ["user", "signal", "process"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+# Dev 빌드 속도 최적화: 의존성만 opt-level 1로 빌드 (런타임 성능 확보 + 빌드 속도)
+[profile.dev.package."*"]
+opt-level = 1
+
+[profile.dev]
+opt-level = 0
+# 링크 시간 단축
+incremental = true

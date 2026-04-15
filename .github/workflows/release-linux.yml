@@ -1,0 +1,264 @@
+name: Release (Linux)
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.0.4)'
+        required: true
+
+jobs:
+  # 매트릭스 빌드 전에 릴리스가 존재하는지 한 번만 보장해서 동시 create 레이스 방지
+  prepare-release:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Resolve version & tag
+        id: meta
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure draft release exists
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          REPO="racemo-dev/racemo"
+          gh release view "$TAG" --repo "$REPO" > /dev/null 2>&1 || \
+            gh release create "$TAG" --repo "$REPO" --title "Racemo ${TAG}" --notes "See the assets to download and install this version." --draft
+
+  build:
+    needs: prepare-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x64           # 파일명에 쓰이는 라벨
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
+
+      - name: Clear stale sccache wrapper
+        run: echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1
+        with:
+          workspaces: src-tauri
+          prefix-key: v1
+          key: ${{ matrix.arch }}   # 아키텍처별 캐시 분리
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libdbus-1-dev \
+            pkg-config \
+            libssl-dev \
+            libgtk-3-dev \
+            xdg-utils
+
+      - run: npm ci
+
+      - name: Build Tauri app (AppImage only)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        # AppImage만 빌드. .deb는 Tauri updater가 in-place 교체를 못 하므로
+        # 사용자가 설치해도 auto-update를 받지 못해 혼란만 생긴다. APT repo를
+        # 제대로 운영하게 되면 다시 켜기.
+        run: |
+          npm run check:deps
+          npm run build:server
+          npm run build
+          npx tauri build --bundles appimage
+
+      # Win/Mac 컨벤션에 맞춰 파일명 정규화:
+      # Racemo_VERSION_Linux_{arch}.AppImage
+      - name: Rename Linux artifacts
+        shell: bash
+        run: |
+          VERSION="${{ needs.prepare-release.outputs.version }}"
+          ARCH="${{ matrix.arch }}"
+          BUNDLE_DIR="src-tauri/target/release/bundle"
+          shopt -s nullglob
+
+          for f in "$BUNDLE_DIR"/appimage/*.AppImage; do
+            target="$BUNDLE_DIR/appimage/Racemo_${VERSION}_Linux_${ARCH}.AppImage"
+            [ "$f" != "$target" ] && mv -f "$f" "$target"
+          done
+
+          echo "=== AppImage ==="
+          ls -la "$BUNDLE_DIR"/appimage/ 2>/dev/null || echo "(empty)"
+
+      # Sign AppImage with updater key (self-updater verifies this signature)
+      - name: Sign AppImage with updater key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          VERSION="${{ needs.prepare-release.outputs.version }}"
+          ARCH="${{ matrix.arch }}"
+          APPIMAGE="src-tauri/target/release/bundle/appimage/Racemo_${VERSION}_Linux_${ARCH}.AppImage"
+          npx tauri signer sign "$APPIMAGE"
+
+      # 보안: 빌드한 .sig가 tauri.conf.json의 pubkey와 일치하는지 검증.
+      # 일치하지 않으면 기존 사용자가 auto-update 받을 수 없는 broken release가 됨.
+      - name: Verify updater key match
+        shell: bash
+        run: |
+          VERSION="${{ needs.prepare-release.outputs.version }}"
+          ARCH="${{ matrix.arch }}"
+          SIG="src-tauri/target/release/bundle/appimage/Racemo_${VERSION}_Linux_${ARCH}.AppImage.sig"
+          if [ ! -f "$SIG" ]; then
+            echo "ERROR: signature file missing: $SIG" >&2
+            exit 1
+          fi
+          python3 scripts/verify-updater-key.py --sig "$SIG"
+
+      - name: Upload artifacts to GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          TAG="${{ needs.prepare-release.outputs.tag }}"
+          REPO="racemo-dev/racemo"
+
+          shopt -s nullglob
+          ASSETS=(
+            src-tauri/target/release/bundle/appimage/*.AppImage
+          )
+          if [ ${#ASSETS[@]} -eq 0 ]; then
+            echo "No Linux artifacts found" >&2
+            exit 1
+          fi
+          gh release upload "$TAG" --repo "$REPO" --clobber "${ASSETS[@]}"
+
+      # finalize-latest-json job이 두 arch의 .sig를 읽어야 하므로 artifact로 보존
+      - name: Upload .sig as workflow artifact
+        uses: actions/upload-artifact@v4  # SHA pin via Dependabot after first run
+        with:
+          name: linux-sig-${{ matrix.arch }}
+          path: src-tauri/target/release/bundle/appimage/*.AppImage.sig
+          retention-days: 1
+          if-no-files-found: error
+
+  # matrix 빌드가 모두 끝난 후 latest.json에 linux 플랫폼 항목 merge.
+  # matrix 안에서 하면 두 job이 동시에 latest.json 수정 시 race condition 발생하므로 분리.
+  finalize-latest-json:
+    needs: [prepare-release, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download x64 sig
+        uses: actions/download-artifact@v4  # SHA pin via Dependabot after first run
+        with:
+          name: linux-sig-x64
+          path: sigs/x64
+
+      - name: Download aarch64 sig
+        uses: actions/download-artifact@v4  # SHA pin via Dependabot after first run
+        with:
+          name: linux-sig-aarch64
+          path: sigs/aarch64
+
+      - name: Merge linux platforms into latest.json
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.prepare-release.outputs.tag }}"
+          VERSION="${{ needs.prepare-release.outputs.version }}"
+          REPO="racemo-dev/racemo"
+          PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          # 기존 latest.json 가져오기 (없으면 빈 구조로 생성)
+          mkdir -p existing
+          if gh release download "$TAG" --repo "$REPO" -p latest.json -D existing 2>/dev/null; then
+            echo "Found existing latest.json"
+          else
+            echo "No existing latest.json — creating fresh"
+          fi
+
+          # 두 arch의 .sig 파일 위치
+          SIG_X64="$(ls sigs/x64/*.AppImage.sig | head -1)"
+          SIG_AARCH64="$(ls sigs/aarch64/*.AppImage.sig | head -1)"
+
+          # python heredoc은 들여쓰기 보존하므로 컬럼 0에서 시작해야 함
+          python3 <<PYEOF
+          import json, os
+
+          version = "$VERSION"
+          tag = "$TAG"
+          pub_date = "$PUB_DATE"
+          base_url = f"https://github.com/racemo-dev/racemo/releases/download/{tag}"
+
+          existing = "existing/latest.json"
+          if os.path.exists(existing):
+              with open(existing) as f:
+                  data = json.load(f)
+              data.setdefault("version", version)
+              data.setdefault("notes", f"v{version}")
+              data.setdefault("pub_date", pub_date)
+              data.setdefault("platforms", {})
+          else:
+              data = {
+                  "version": version,
+                  "notes": f"v{version}",
+                  "pub_date": pub_date,
+                  "platforms": {},
+              }
+
+          with open("$SIG_X64") as f:
+              sig_x64 = f.read().strip()
+          with open("$SIG_AARCH64") as f:
+              sig_aarch64 = f.read().strip()
+
+          data["platforms"]["linux-x86_64"] = {
+              "signature": sig_x64,
+              "url": f"{base_url}/Racemo_{version}_Linux_x64.AppImage",
+          }
+          data["platforms"]["linux-aarch64"] = {
+              "signature": sig_aarch64,
+              "url": f"{base_url}/Racemo_{version}_Linux_aarch64.AppImage",
+          }
+
+          with open("latest.json", "w") as f:
+              json.dump(data, f, indent=2)
+
+          print("Platforms in latest.json:", list(data["platforms"].keys()))
+          PYEOF
+
+          gh release upload "$TAG" latest.json --repo "$REPO" --clobber

@@ -1,0 +1,73 @@
+{
+  "name": "kubectl",
+  "subcommands": {
+    "get": {
+      "description": "Display resources",
+      "options": [
+        { "name": "--output", "alias": "-o", "description": "Output format", "takesArg": true },
+        { "name": "--namespace", "alias": "-n", "description": "Namespace", "takesArg": true },
+        { "name": "--all-namespaces", "alias": "-A", "description": "All namespaces" },
+        { "name": "--watch", "alias": "-w", "description": "Watch for changes" }
+      ]
+    },
+    "describe": { "description": "Show details of a resource", "options": [{ "name": "--namespace", "alias": "-n", "description": "Namespace", "takesArg": true }] },
+    "apply": {
+      "description": "Apply configuration",
+      "options": [
+        { "name": "--filename", "alias": "-f", "description": "File to apply", "takesArg": true },
+        { "name": "--namespace", "alias": "-n", "description": "Namespace", "takesArg": true }
+      ]
+    },
+    "delete": {
+      "description": "Delete resources",
+      "options": [
+        { "name": "--filename", "alias": "-f", "description": "File", "takesArg": true },
+        { "name": "--namespace", "alias": "-n", "description": "Namespace", "takesArg": true }
+      ]
+    },
+    "logs": {
+      "description": "Print pod logs",
+      "options": [
+        { "name": "--follow", "alias": "-f", "description": "Follow output" },
+        { "name": "--container", "alias": "-c", "description": "Container name", "takesArg": true },
+        { "name": "--tail", "description": "Lines of recent log", "takesArg": true }
+      ]
+    },
+    "exec": {
+      "description": "Execute in a container",
+      "options": [
+        { "name": "--stdin", "alias": "-i", "description": "Keep STDIN open" },
+        { "name": "--tty", "alias": "-t", "description": "Allocate TTY" },
+        { "name": "--container", "alias": "-c", "description": "Container name", "takesArg": true }
+      ]
+    },
+    "create": { "description": "Create a resource" },
+    "edit": { "description": "Edit a resource" },
+    "scale": { "description": "Scale a resource", "options": [{ "name": "--replicas", "description": "Number of replicas", "takesArg": true }] },
+    "rollout": {
+      "description": "Manage rollouts",
+      "subcommands": {
+        "status": { "description": "Show rollout status" },
+        "history": { "description": "View rollout history" },
+        "undo": { "description": "Undo rollout" },
+        "restart": { "description": "Restart rollout" }
+      }
+    },
+    "port-forward": { "description": "Forward ports" },
+    "config": {
+      "description": "Modify kubeconfig",
+      "subcommands": {
+        "view": { "description": "Display config" },
+        "use-context": { "description": "Switch context" },
+        "get-contexts": { "description": "List contexts" }
+      }
+    },
+    "top": {
+      "description": "Display resource usage",
+      "subcommands": {
+        "pods": { "description": "Pod resource usage" },
+        "nodes": { "description": "Node resource usage" }
+      }
+    }
+  }
+}

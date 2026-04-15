@@ -1,0 +1,35 @@
+{
+  "name": "npm",
+  "subcommands": {
+    "install": {
+      "description": "Install packages",
+      "options": [
+        { "name": "--save-dev", "alias": "-D", "description": "Save as dev dependency" },
+        { "name": "--global", "alias": "-g", "description": "Install globally" },
+        { "name": "--save-exact", "alias": "-E", "description": "Save exact version" }
+      ]
+    },
+    "run": { "description": "Run a script" },
+    "start": { "description": "Start the project" },
+    "test": { "description": "Run tests" },
+    "build": { "description": "Build the project" },
+    "init": { "description": "Create package.json", "options": [{ "name": "--yes", "alias": "-y", "description": "Accept defaults" }] },
+    "uninstall": { "description": "Remove a package" },
+    "update": { "description": "Update packages" },
+    "outdated": { "description": "Check outdated packages" },
+    "list": { "description": "List installed packages", "options": [{ "name": "--depth", "description": "Max depth", "takesArg": true }] },
+    "publish": { "description": "Publish a package" },
+    "pack": { "description": "Create a tarball" },
+    "link": { "description": "Symlink a package" },
+    "exec": { "description": "Run a command from a package" },
+    "ci": { "description": "Clean install" },
+    "audit": { "description": "Security audit", "options": [{ "name": "--fix", "description": "Auto-fix vulnerabilities" }] },
+    "cache": {
+      "description": "Manage cache",
+      "subcommands": {
+        "clean": { "description": "Delete cache" },
+        "verify": { "description": "Verify cache" }
+      }
+    }
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "name": "git",
+  "subcommands": {
+    "add": {
+      "description": "Add file contents to the index",
+      "options": [
+        { "name": "--all", "alias": "-A", "description": "Add all changes" },
+        { "name": "--patch", "alias": "-p", "description": "Interactively choose hunks" },
+        { "name": "--dry-run", "alias": "-n", "description": "Dry run" }
+      ],
+      "args": { "name": "pathspec", "template": "filepaths" }
+    },
+    "commit": {
+      "description": "Record changes to the repository",
+      "options": [
+        { "name": "--message", "alias": "-m", "description": "Commit message", "takesArg": true },
+        { "name": "--amend", "description": "Amend previous commit" },
+        { "name": "--no-edit", "description": "Use previous commit message" },
+        { "name": "--all", "alias": "-a", "description": "Stage all modified files" }
+      ]
+    },
+    "checkout": {
+      "description": "Switch branches or restore files",
+      "options": [
+        { "name": "--branch", "alias": "-b", "description": "Create and checkout new branch", "takesArg": true }
+      ]
+    },
+    "switch": {
+      "description": "Switch branches",
+      "options": [
+        { "name": "--create", "alias": "-c", "description": "Create and switch", "takesArg": true }
+      ]
+    },
+    "push": {
+      "description": "Update remote refs",
+      "options": [
+        { "name": "--force", "alias": "-f", "description": "Force push" },
+        { "name": "--set-upstream", "alias": "-u", "description": "Set upstream" },
+        { "name": "--tags", "description": "Push tags" }
+      ]
+    },
+    "pull": {
+      "description": "Fetch and merge",
+      "options": [
+        { "name": "--rebase", "alias": "-r", "description": "Rebase on pull" }
+      ]
+    },
+    "status": { "description": "Show working tree status", "options": [{ "name": "--short", "alias": "-s", "description": "Short format" }] },
+    "log": {
+      "description": "Show commit logs",
+      "options": [
+        { "name": "--oneline", "description": "One line per commit" },
+        { "name": "--graph", "description": "Show graph" },
+        { "name": "--all", "description": "All branches" }
+      ]
+    },
+    "branch": {
+      "description": "List, create, or delete branches",
+      "options": [
+        { "name": "--delete", "alias": "-d", "description": "Delete branch" },
+        { "name": "--all", "alias": "-a", "description": "List all branches" }
+      ]
+    },
+    "merge": { "description": "Join development histories" },
+    "rebase": {
+      "description": "Reapply commits",
+      "options": [
+        { "name": "--interactive", "alias": "-i", "description": "Interactive rebase" },
+        { "name": "--continue", "description": "Continue after resolving" },
+        { "name": "--abort", "description": "Abort rebase" }
+      ]
+    },
+    "stash": {
+      "description": "Stash changes",
+      "subcommands": {
+        "pop": { "description": "Apply and remove stash" },
+        "list": { "description": "List stashes" },
+        "drop": { "description": "Remove stash" },
+        "apply": { "description": "Apply stash" }
+      }
+    },
+    "diff": {
+      "description": "Show changes",
+      "options": [
+        { "name": "--staged", "description": "Show staged changes" },
+        { "name": "--stat", "description": "Show diffstat" }
+      ],
+      "args": { "name": "path", "template": "filepaths" }
+    },
+    "clone": { "description": "Clone a repository" },
+    "init": { "description": "Create an empty repository" },
+    "fetch": { "description": "Download objects and refs", "options": [{ "name": "--all", "description": "Fetch all remotes" }] },
+    "reset": {
+      "description": "Reset current HEAD",
+      "options": [
+        { "name": "--hard", "description": "Reset working tree" },
+        { "name": "--soft", "description": "Keep changes staged" }
+      ]
+    },
+    "remote": {
+      "description": "Manage remotes",
+      "subcommands": {
+        "add": { "description": "Add remote" },
+        "remove": { "description": "Remove remote" },
+        "rename": { "description": "Rename remote" }
+      }
+    },
+    "tag": { "description": "Create, list, or delete tags" },
+    "cherry-pick": { "description": "Apply a commit" }
+  }
+}

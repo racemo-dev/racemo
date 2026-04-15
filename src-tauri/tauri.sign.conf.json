@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "windows": {
+      "signCommand": "signtool sign /t http://time.certum.pl /a /fd SHA256"
+    }
+  }
+}
