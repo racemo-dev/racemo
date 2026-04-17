@@ -90,7 +90,7 @@ pub struct GitCommandLogEntry {
 static GIT_LOG: Mutex<Option<VecDeque<GitCommandLogEntry>>> = Mutex::new(None);
 
 fn push_log(entry: GitCommandLogEntry) {
-    let mut guard = GIT_LOG.lock().expect("mutex poisoned");
+    let mut guard = GIT_LOG.lock().unwrap_or_else(|e| e.into_inner());
     let log = guard.get_or_insert_with(VecDeque::new);
     if log.len() >= MAX_LOG_ENTRIES {
         log.pop_front();
@@ -100,13 +100,13 @@ fn push_log(entry: GitCommandLogEntry) {
 
 /// Get all stored git command log entries.
 pub fn get_command_log() -> Vec<GitCommandLogEntry> {
-    let guard = GIT_LOG.lock().expect("mutex poisoned");
+    let guard = GIT_LOG.lock().unwrap_or_else(|e| e.into_inner());
     guard.as_ref().map(|d| d.iter().cloned().collect()).unwrap_or_default()
 }
 
 /// Clear all stored git command log entries.
 pub fn clear_command_log() {
-    let mut guard = GIT_LOG.lock().expect("mutex poisoned");
+    let mut guard = GIT_LOG.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(log) = guard.as_mut() {
         log.clear();
     }
@@ -870,10 +870,13 @@ pub fn apply_worktree(path: &str, worktree_path: &str, target: &str, squash: boo
     // However, git merge can be done if we are on 'target'.
     
     // For simplicity, let's assume we use the main repo root to do the merge
-    let main_path = path; 
-    
-    // Checkout target
-    run_git(main_path, &["checkout", target])?;
+    let main_path = path;
+
+    // Checkout target (skip if already on target branch — avoids worktree conflict)
+    let current = get_repo_info(main_path).map(|i| i.branch).unwrap_or_default();
+    if current != target {
+        run_git(main_path, &["checkout", target])?;
+    }
 
     let mut args = vec!["merge"];
     if squash {

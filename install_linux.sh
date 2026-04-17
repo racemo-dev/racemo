@@ -8,7 +8,7 @@ REPO="racemo-dev/racemo"
 INSTALL_DIR="$HOME/.local/bin"
 APP_NAME="Racemo.AppImage"
 DESKTOP_DIR="$HOME/.local/share/applications"
-ICON_DIR="$HOME/.local/share/icons"
+ICON_DIR="$HOME/.local/share/icons/hicolor/128x128/apps"
 
 # Colors (disabled if not a terminal)
 if [ -t 1 ]; then
@@ -72,13 +72,14 @@ main() {
     printf "\n"
     curl -fSL --progress-bar "$URL" -o "$DEST"
     chmod +x "$DEST"
+    ln -sf "$DEST" "$INSTALL_DIR/racemo"
     ok "Binary installed"
 
     # ── Desktop entry + icon ──
     mkdir -p "$DESKTOP_DIR" "$ICON_DIR"
 
-    if curl -fsSL "https://raw.githubusercontent.com/$REPO/main/scripts/linux-fa.svg" \
-        -o "$ICON_DIR/racemo.svg" 2>/dev/null; then
+    if curl -fsSL "https://raw.githubusercontent.com/$REPO/main/src-tauri/icons/128x128.png" \
+        -o "$ICON_DIR/racemo.png" 2>/dev/null; then
         ok "Icon installed"
     fi
 
@@ -87,7 +88,7 @@ main() {
 Name=Racemo
 Comment=Terminal Multiplexer
 Exec=$DEST
-Icon=$ICON_DIR/racemo.svg
+Icon=racemo
 Type=Application
 Categories=Development;TerminalEmulator;
 StartupWMClass=Racemo
@@ -96,6 +97,9 @@ EOF
 
     if command -v update-desktop-database >/dev/null 2>&1; then
         update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+    fi
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
     fi
 
     # ── PATH check ──
@@ -109,11 +113,18 @@ EOF
             ;;
     esac
 
+    # ── Launch ──
+    if [ -x "$DEST" ]; then
+        info "Launching Racemo..."
+        nohup "$DEST" >/dev/null 2>&1 &
+        ok "Racemo started"
+    fi
+
     # ── Done ──
     printf "\n"
     printf "  ${GREEN}${BOLD}Racemo v%s installed successfully!${RESET}\n" "$VERSION"
     printf "\n"
-    printf "  ${DIM}Run${RESET}          ${BOLD}Racemo.AppImage${RESET}\n"
+    printf "  ${DIM}Run${RESET}          ${BOLD}racemo${RESET}\n"
     printf "  ${DIM}Launcher${RESET}     Search ${BOLD}Racemo${RESET} in your app menu\n"
     printf "  ${DIM}Uninstall${RESET}    rm %s \\\\\n" "$DEST"
     printf "               %s/racemo.desktop \\\\\n" "$DESKTOP_DIR"

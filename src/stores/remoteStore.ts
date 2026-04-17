@@ -10,7 +10,7 @@ import { getBrowserRemoteClient } from "../lib/webrtcClient";
 import { useDialogStore } from "./dialogStore";
 import { getGitT } from "../lib/i18n/git";
 import { useAuthStore } from "./authStore";
-import { useSettingsStore } from "./settingsStore";
+import { useSettingsStore, DEFAULT_SIGNALING_WS_URL } from "./settingsStore";
 import { logger } from "../lib/logger";
 import { disposeAllRemoteTerminals, disposeRemoteTerminals } from "../lib/remoteTerminalRegistry";
 import { clearAllRemotePtyOutputBuffers, clearRemotePtyOutputBuffers } from "../lib/remotePtyOutputBuffer";
@@ -223,7 +223,7 @@ export const useRemoteStore = create<RemoteStore>((set, get) => ({
     try {
       if (!isTauri()) {
         await loadProto();
-        await getBrowserRemoteClient().connect("wss://racemo-signal.fly.dev", code);
+        await getBrowserRemoteClient().connect(DEFAULT_SIGNALING_WS_URL, code);
         return;
       }
       await invoke("connect_to_remote_host", { pairingCode: code });

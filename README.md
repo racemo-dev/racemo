@@ -20,7 +20,6 @@
   <a href="https://github.com/racemo-dev/racemo/releases/latest"><img src="https://img.shields.io/github/v/release/racemo-dev/racemo?color=violet&label=version" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/racemo-dev/racemo" alt="License" /></a>
   <img src="https://img.shields.io/badge/status-Developer%20Preview-orange" alt="Status" />
-  <a href="https://github.com/racemo-dev/racemo/stargazers"><img src="https://img.shields.io/github/stars/racemo-dev/racemo?style=social" alt="Stars" /></a>
   <br/>
   <a href="https://github.com/racemo-dev/racemo/releases/latest">Download</a> · <a href="#build-from-source">Build from Source</a> · <a href="CONTRIBUTING.md">Contribute</a>
 </p>
@@ -80,19 +79,17 @@
 
 ## Install
 
-Download from the [Releases](https://github.com/racemo-dev/racemo/releases/latest) page.
-
 ### macOS
 
 ```bash
-brew tap racemo-dev/tap && brew install --cask racemo
+curl -fsSL https://raw.githubusercontent.com/racemo-dev/racemo/main/install_mac.sh | sh
 ```
-
-Or download the `.dmg` directly from the [Releases](https://github.com/racemo-dev/racemo/releases/latest) page.
 
 ### Windows
 
-Download `Racemo_x.x.x_Windows_x64-setup.exe` from the [Releases](https://github.com/racemo-dev/racemo/releases/latest) page.
+```cmd
+powershell -c "irm https://raw.githubusercontent.com/racemo-dev/racemo/main/install_windows.ps1 | iex"
+```
 
 ### Linux
 
@@ -100,7 +97,7 @@ Download `Racemo_x.x.x_Windows_x64-setup.exe` from the [Releases](https://github
 curl -fsSL https://raw.githubusercontent.com/racemo-dev/racemo/main/install_linux.sh | sh
 ```
 
-Or download the AppImage manually from [Releases](https://github.com/racemo-dev/racemo/releases/latest).
+Or download directly from the [Releases](https://github.com/racemo-dev/racemo/releases/latest) page.
 
 All platforms include automatic updates.
 
@@ -176,6 +173,7 @@ npm run tauri:build     # Production build
 ## Roadmap
 
 - [ ] **Telegram integration** — session notifications and remote commands via Telegram bot
+- [ ] Image viewer and PDF preview in the editor panel
 - [ ] Process manager — highlight dev server ports, one-click kill
 - [ ] Prompt-to-prompt jump & command separator with execution time
 - [ ] Exit code badge (success/failure at a glance)

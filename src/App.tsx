@@ -81,7 +81,49 @@ function EmptyTerminalView() {
   );
 }
 
+function RootErrorFallback() {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        height: "100%",
+        gap: 8,
+        color: "var(--text-muted)",
+        fontSize: "var(--fs-12)",
+      }}
+    >
+      <span>Application error</span>
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        style={{
+          padding: "4px 12px",
+          fontSize: "var(--fs-11)",
+          color: "var(--text-secondary)",
+          background: "var(--bg-overlay)",
+          border: "1px solid var(--border-default)",
+          borderRadius: 4,
+          cursor: "pointer",
+        }}
+      >
+        Reload
+      </button>
+    </div>
+  );
+}
+
 export default function App() {
+  return (
+    <ErrorBoundary fallback={<RootErrorFallback />}>
+      <AppInner />
+    </ErrorBoundary>
+  );
+}
+
+function AppInner() {
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const editorModalOpen = useEditorStore((s) => s.modalOpen);

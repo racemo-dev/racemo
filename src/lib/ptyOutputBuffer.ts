@@ -3,6 +3,7 @@ import { getTerminal } from "./terminalRegistry";
 import { onPtyOutput } from "./silenceDetector";
 import { useSessionStore } from "../stores/sessionStore";
 import { logger } from "./logger";
+import { writeToTerminal } from "./terminalWrite";
 
 interface PtyOutputPayload {
   pane_id: string;
@@ -112,7 +113,7 @@ export function setupPtyOutputListener(): Promise<() => void> {
 
     const entry = getTerminal(pane_id);
     if (entry) {
-      entry.terminal.write(text);
+      writeToTerminal(entry.terminal, text);
     } else {
       // Terminal not ready yet — buffer the data
       let buf = pending.get(pane_id);
@@ -143,7 +144,7 @@ export function flushPtyOutputBuffer(ptyId: string): void {
   for (const data of buf) {
     const bytes = new Uint8Array(data);
     const text = flushDecoder.decode(bytes, { stream: true });
-    entry.terminal.write(text);
+    writeToTerminal(entry.terminal, text);
   }
   pending.delete(ptyId);
 }

@@ -31,7 +31,7 @@ const DEFAULT_PATTERNS: RegExp[] = [
 
 const MASK = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
 
-// ANSI escape sequence pattern
+// ANSI escape sequence pattern (CSI / OSC-BEL / OSC-ST)
 // eslint-disable-next-line no-control-regex -- ANSI escape sequences require control characters
 const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b\][^\x1b]*\x1b\\/g;
 
@@ -58,53 +58,60 @@ export function invalidatePatternCache() {
   compiledPatterns = null;
 }
 
-/**
- * Mask secrets in terminal output text.
- * Preserves ANSI escape sequences to prevent terminal rendering breakage.
- */
-export function maskSecrets(raw: string): string {
-  // Collect ANSI sequences and their positions
-  const ansiSegments: { start: number; end: number; text: string }[] = [];
-  let match: RegExpExecArray | null;
+type Token = { kind: "ansi" | "plain"; text: string };
 
-  // Reset and collect ANSI sequences
+// Split raw into alternating ANSI and plain-text tokens.
+// Keeps ANSI sequences untouched so they never enter secret regex and length changes don't misalign them.
+function tokenize(raw: string): Token[] {
+  const tokens: Token[] = [];
+  let last = 0;
   ANSI_RE.lastIndex = 0;
-  while ((match = ANSI_RE.exec(raw)) !== null) {
-    ansiSegments.push({ start: match.index, end: match.index + match[0].length, text: match[0] });
+  let m: RegExpExecArray | null;
+  while ((m = ANSI_RE.exec(raw)) !== null) {
+    if (m.index > last) {
+      tokens.push({ kind: "plain", text: raw.slice(last, m.index) });
+    }
+    tokens.push({ kind: "ansi", text: m[0] });
+    last = m.index + m[0].length;
+    // Guard against zero-width matches (shouldn't happen with ANSI_RE, but defensive).
+    if (m[0].length === 0) ANSI_RE.lastIndex++;
   }
-
-  if (ansiSegments.length === 0) {
-    // No ANSI sequences — simple path
-    return applyPatterns(raw);
+  if (last < raw.length) {
+    tokens.push({ kind: "plain", text: raw.slice(last) });
   }
-
-  // Replace ANSI sequences with NUL placeholders of same length
-  let sanitized = raw;
-  for (const seg of ansiSegments) {
-    const placeholder = "\x00".repeat(seg.text.length);
-    sanitized =
-      sanitized.slice(0, seg.start) + placeholder + sanitized.slice(seg.end);
-  }
-
-  // Apply secret patterns on sanitized text
-  sanitized = applyPatterns(sanitized);
-
-  // Restore ANSI sequences
-  for (const seg of ansiSegments) {
-    const before = sanitized.slice(0, seg.start);
-    const after = sanitized.slice(seg.start + seg.text.length);
-    sanitized = before + seg.text + after;
-  }
-
-  return sanitized;
+  return tokens;
 }
 
-function applyPatterns(text: string): string {
-  const patterns = getPatterns();
+function applyPatterns(text: string, patterns: RegExp[]): string {
   let result = text;
   for (const pattern of patterns) {
     pattern.lastIndex = 0;
     result = result.replace(pattern, MASK);
   }
   return result;
+}
+
+/**
+ * Pure, dependency-free core. Exported for testing/reuse.
+ * Applies `patterns` only to plain-text tokens; ANSI sequences are passed through unchanged.
+ */
+export function maskSecretsWithPatterns(raw: string, patterns: RegExp[]): string {
+  if (raw.length === 0) return raw;
+  const tokens = tokenize(raw);
+  let out = "";
+  for (const t of tokens) {
+    out += t.kind === "plain" ? applyPatterns(t.text, patterns) : t.text;
+  }
+  return out;
+}
+
+/**
+ * Mask secrets in terminal output text.
+ *
+ * Known limitation (v0.0.8): masking operates per PTY write chunk. A secret
+ * split across two chunks (e.g. `sk-abc` + `def...`) won't be detected.
+ * A per-pane tail buffer is planned for v0.0.9.
+ */
+export function maskSecrets(raw: string): string {
+  return maskSecretsWithPatterns(raw, getPatterns());
 }

@@ -459,7 +459,7 @@ const translations = {
   "app.serverError": { en: "Failed to connect to server: {msg}", ko: "서버 연결에 실패했습니다: {msg}" },
   "app.reconnect": { en: "Reconnect", ko: "재연결 시도" },
   "app.noTerminal": { en: "No active terminal.", ko: "사용중인 터미널이 없습니다." },
-  "app.openFolder": { en: "Open Folder", ko: "폴더 열기" },
+  "app.openFolder": { en: "Open Workspace", ko: "작업 폴더 열기" },
 
   // ── AI History ──
   "aiHistory.title": { en: "AI History", ko: "AI 기록" },

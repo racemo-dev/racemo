@@ -1,0 +1,9 @@
+# Racemo code owners — see https://docs.github.com/articles/about-code-owners
+# Default reviewer for all changes unless a more specific rule below matches.
+
+*                          @JJs23
+
+# Release infrastructure
+/.github/workflows/        @JJs23
+/scripts/                  @JJs23
+/docs-dev/RELEASE.md       @JJs23

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { AuthUser, DeviceCodeResponse, TokenResponse } from "../types/auth";
 import { getGitT } from "../lib/i18n/git";
 import { logger } from "../lib/logger";
+import { DEFAULT_SIGNALING_WS_URL } from "./settingsStore";
 
 interface AuthStore {
   user: AuthUser | null;
@@ -71,7 +72,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
       logger.error("[authStore] startLogin failed:", e);
       let errorMsg = String(e);
       if (errorMsg.includes("error sending request") || errorMsg.includes("unreachable") || errorMsg.includes("Connection")) {
-        errorMsg = `Signaling server unreachable (wss://racemo-signal.fly.dev)`;
+        errorMsg = `Signaling server unreachable (${DEFAULT_SIGNALING_WS_URL})`;
 
         // 커스텀 모달 표시
         const { useDialogStore } = await import("./dialogStore");

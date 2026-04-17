@@ -35,7 +35,6 @@ export default function WorktreeActionModal() {
 
     useEffect(() => {
         if (isOpen) {
-            // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset on modal open
             setTarget("main");
             setUseRebase(true);
             setUseSquash(false);
@@ -91,14 +90,15 @@ export default function WorktreeActionModal() {
                 const mergeArgs = useSquash
                     ? ["merge", "--squash", branch]
                     : ["merge", branch];
-                await runGitStreaming(
-                    [
-                        { cwd, args: ["checkout", target], label: "checkout" },
-                        { cwd, args: mergeArgs, label: "merge" },
-                    ],
-                    cfg.title,
-                    onSuccess
-                );
+                // 원본 리포가 이미 target 브랜치면 checkout 불필요 (워크트리 존재 시 checkout 실패 방지)
+                const steps: { cwd: string; args: string[]; label?: string }[] = [];
+                const { invoke } = await import("@tauri-apps/api/core");
+                const info = await invoke<{ branch: string }>("git_repo_info", { path: cwd }).catch(() => ({ branch: "" }));
+                if (info.branch !== target) {
+                    steps.push({ cwd, args: ["checkout", target], label: "checkout" });
+                }
+                steps.push({ cwd, args: mergeArgs, label: "merge" });
+                await runGitStreaming(steps, cfg.title, onSuccess);
             } else if (mode === "pull") {
                 await runGitStreaming(
                     [{ cwd: worktree.path, args: ["pull"], label: "pull" }],

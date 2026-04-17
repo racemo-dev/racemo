@@ -53,6 +53,7 @@ export const AI_TEMPLATES = [
 export const DEFAULT_AI_TEMPLATE = AI_TEMPLATES[0].value;
 
 export const DEFAULT_SIGNALING_URL = "https://racemo-signal.fly.dev";
+export const DEFAULT_SIGNALING_WS_URL = DEFAULT_SIGNALING_URL.replace(/^http/, "ws");
 
 interface SettingsStore {
   fontFamily: string;

@@ -1977,9 +1977,9 @@ pub fn webview_navigate(app: AppHandle, label: String, url: String) -> Result<()
     if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
         return Err(format!("Only http/https URLs allowed: {trimmed}"));
     }
+    let parsed: tauri::Url = trimmed.parse().map_err(|e| format!("Invalid URL: {e}"))?;
     let wv = get_browser_webview(&app, &label)?;
-    let js = format!("window.location.href={};", serde_json::to_string(trimmed).unwrap());
-    wv.eval(&js).map_err(|e| format!("eval failed: {e}"))
+    wv.navigate(parsed).map_err(|e| format!("navigate failed: {e}"))
 }
 
 /// Reload the current page in a webview.

@@ -230,7 +230,7 @@ static SERVER_CHILD: Mutex<Option<std::process::Child>> = Mutex::new(None);
 
 /// 실행 중인 서버 프로세스를 강제 종료. 업데이터 실행 전에 호출.
 pub fn kill_server() {
-    let mut guard = SERVER_CHILD.lock().expect("mutex poisoned");
+    let mut guard = SERVER_CHILD.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(mut child) = guard.take() {
         let _ = child.kill();
         let _ = child.wait();

@@ -2,6 +2,29 @@
   "name": "racemo",
   "private": true,
   "version": "0.0.8",
+  "description": "Modern GUI terminal multiplexer built with Tauri",
+  "keywords": [
+    "terminal",
+    "multiplexer",
+    "tauri",
+    "xterm",
+    "pty",
+    "gui-terminal",
+    "cross-platform",
+    "desktop"
+  ],
+  "homepage": "https://github.com/racemo-dev/racemo#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/racemo-dev/racemo.git"
+  },
+  "bugs": {
+    "url": "https://github.com/racemo-dev/racemo/issues"
+  },
+  "engines": {
+    "node": ">=20.19",
+    "npm": ">=10"
+  },
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
@@ -96,7 +119,7 @@
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4",
-    "vite": "^7.2.4"
+    "vite": "^7.3.2"
   },
   "optionalDependencies": {
     "@rollup/rollup-darwin-arm64": "^4.59.0",

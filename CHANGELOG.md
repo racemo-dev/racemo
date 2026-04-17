@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.0.8] - 2026-04-17
+
+### Added
+- **Per-session Secret Masking is now actually applied to terminal output.** Previously the privacy toggle existed but `maskSecrets()` was never called — turning it on had no effect. The masker now runs on every PTY write (local and remote) via a new `writeToTerminal()` helper in `src/lib/terminalWrite.ts`.
+- `ARCHITECTURE.md` at the repository root for contributor onboarding.
+- `.github/CODEOWNERS` for automatic reviewer assignment.
+- `.github/FUNDING.yml` enabling the Sponsor button.
+- `package.json` metadata: `description`, `keywords`, `homepage`, `repository`, `bugs`, `engines`.
+- `SECURITY.md` — new **Remote Host Trust Model** section documenting the intentional Windows path policy (remote peers may access all drives because non-system-drive workflows like `D:\work` are common).
+
+### Fixed
+- **Secret Masking + ANSI regression.** A long secret (e.g. 40-char API key) being masked to 8-char dots used to offset every subsequent ANSI color escape, corrupting terminal rendering. The detector was rewritten to tokenise input into ANSI and plain-text segments and apply patterns only to plain text; ANSI sequences are passed through untouched, so length changes no longer misalign anything.
+- **`webview_navigate` no longer uses `eval()`.** Switched to `Webview::navigate()` (Tauri 2.10 API) with explicit URL parsing via `tauri::Url::parse()`.
+- **Root-level React crashes no longer blank the whole window.** `ErrorBoundary` is now applied at the app root (Sidebar / TabBar / PaneLayout / StatusBar / all lazy modals are covered) with a minimal "Application error" fallback and Reload button. The existing InlineEditorPanel boundary is preserved underneath.
+- **Mutex poison crashes** in `git.rs` and `ipc/client.rs`. `.lock().expect("poisoned")` replaced with `.lock().unwrap_or_else(|e| e.into_inner())`, so a thread panic inside a lock no longer takes down the whole process.
+- **Signaling URL inconsistency.** The browser fallback in `remoteStore` was using a hardcoded `wss://racemo-signal.fly.dev` that could drift from the `DEFAULT_SIGNALING_URL` constant. Both locations now derive from the same constant via a new `DEFAULT_SIGNALING_WS_URL`.
+
+### Security
+- `npm audit` clean. Upgraded Vite to `^7.3.2` and ran `npm audit fix`, clearing the previously reported advisories (Vite, `chevrotain`/`lodash-es` via mermaid transitive, `dompurify`, `protobufjs`).
+
+### Known Limitations
+- Secret masking operates **per PTY write chunk**. A secret split across two chunks (e.g. `sk-abc` arriving in one burst and `def123...` in the next) is not detected in this release. A per-pane tail buffer is planned for v0.0.9.
+
 ## [0.0.4] - 2026-04-09
 
 ### Added

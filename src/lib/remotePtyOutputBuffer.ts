@@ -1,6 +1,7 @@
 import { listenRemote } from "./remoteEvents";
 import { getRemoteTerminal } from "./remoteTerminalRegistry";
 import { logger } from "./logger";
+import { writeToTerminal } from "./terminalWrite";
 
 interface RemotePtyOutputPayload {
   pane_id: string;
@@ -31,7 +32,7 @@ export function setupRemotePtyOutputListener(): Promise<() => void> {
 
     const entry = getRemoteTerminal(pane_id);
     if (entry) {
-      entry.terminal.write(text);
+      writeToTerminal(entry.terminal, text);
     } else {
       let buf = pending.get(pane_id);
       if (!buf) {
@@ -61,7 +62,7 @@ export function flushRemotePtyOutputBuffer(remotePaneId: string): void {
   for (const data of buf) {
     const bytes = new Uint8Array(data);
     const text = flushDecoder.decode(bytes, { stream: true });
-    entry.terminal.write(text);
+    writeToTerminal(entry.terminal, text);
   }
   pending.delete(remotePaneId);
 }

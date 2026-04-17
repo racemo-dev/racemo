@@ -22,7 +22,12 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Emitter};
 
 /// The public key used to verify update signatures.
-const UPDATER_PUBKEY: &str = include_str!("../../.tauri/racemo.key.pub");
+///
+/// Must stay byte-identical to `plugins.updater.pubkey` in `tauri.conf.json`.
+/// The consistency test `pubkey_matches_tauri_conf` enforces this — if you
+/// rotate the signing key, update both locations and let the test confirm
+/// they match.
+const UPDATER_PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI3NUQxQjI4OTk2RkQwRjkKUlVUNTBHK1pLQnRkdDRPVG1jLzVubkdPTWg5WDNFdHRFZHVTMHdpcC9jSzR6cE5wZUZYWk5yRHQK";
 
 #[derive(Debug, Deserialize)]
 struct PlatformEntry {
@@ -168,7 +173,8 @@ pub async fn download_and_install(info: &UpdateInfo, app: &AppHandle) -> Result<
     // Platform-specific install
     install_platform(&tmp_path)?;
 
-    // Cleanup
+    // Cleanup — skip on Windows where the detached batch script still needs the installer
+    #[cfg(not(target_os = "windows"))]
     let _ = std::fs::remove_dir_all(&tmp_dir);
 
     log::info!("[updater] Updated to v{}", info.version);
@@ -358,29 +364,37 @@ fn install_platform(artifact: &std::path::Path) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn install_platform(artifact: &std::path::Path) -> Result<(), String> {
-    // Run the NSIS installer silently. The installer will:
-    // 1. Kill the current process if needed (nsProcess::KillProcess in Tauri NSIS template)
-    // 2. Replace all files
-    // 3. NOT auto-relaunch (we handle that in relaunch_app)
-    //
-    // We use .status() to wait for completion. If NSIS kills our process during
-    // installation, the wait is terminated — that's fine, the installer continues.
-    let status = std::process::Command::new(artifact)
-        .arg("/S")
-        .status();
+    use std::os::windows::process::CommandExt;
+    const DETACHED_PROCESS: u32 = 0x00000008;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-    match status {
-        Ok(s) if s.success() => {
-            log::info!("[updater:windows] Silent installer completed");
-        }
-        Ok(s) => {
-            return Err(format!("[updater:windows] Installer failed with exit status: {s}"));
-        }
-        Err(e) => {
-            // Process may have been killed by the installer — that's expected
-            log::info!("[updater:windows] Installer wait ended: {e} (may have been killed by installer)");
-        }
-    }
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("Failed to get current exe path: {e}"))?;
+
+    // Write a temporary batch script that:
+    // 1. Runs the NSIS installer silently (blocks until completion)
+    // 2. Launches the newly installed exe
+    // 3. Deletes itself
+    //
+    // This script is spawned as a DETACHED process so it survives when
+    // NSIS kills our process during installation (nsProcess::KillProcess).
+    let bat = artifact.with_extension("bat");
+    let content = format!(
+        "@echo off\r\n\"{installer}\" /S\r\nstart \"\" \"{exe}\"\r\ndel \"%~f0\"\r\n",
+        installer = artifact.display(),
+        exe = exe.display(),
+    );
+    std::fs::write(&bat, &content)
+        .map_err(|e| format!("Failed to write update script: {e}"))?;
+
+    std::process::Command::new("cmd")
+        .arg("/C")
+        .arg(&bat)
+        .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW)
+        .spawn()
+        .map_err(|e| format!("Failed to spawn update script: {e}"))?;
+
+    log::info!("[updater:windows] Spawned detached installer + relaunch script");
     Ok(())
 }
 
@@ -476,9 +490,10 @@ pub async fn install_app_update(
 
 /// Relaunch the app after update.
 /// - Linux: exec the normalized Racemo.AppImage path (original may have been versioned)
-/// - Windows: just exit — the NSIS installer handles relaunch via /UPDATE flag
+/// - Windows: no-op — let NSIS kill us; the detached batch script handles relaunch
 /// - macOS: standard restart
 #[tauri::command]
+#[allow(unused_variables)]
 pub fn relaunch_app(app: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
@@ -500,18 +515,12 @@ pub fn relaunch_app(app: AppHandle) -> Result<(), String> {
     }
     #[cfg(target_os = "windows")]
     {
-        // Launch the newly installed exe explicitly, then exit the old process.
-        // The NSIS installer has already replaced files at this point.
-        if let Ok(exe) = std::env::current_exe() {
-            log::info!("[updater] Windows: relaunching {}", exe.display());
-            match std::process::Command::new(&exe).spawn() {
-                Ok(_) => { app.exit(0); return Ok(()); }
-                Err(e) => {
-                    log::error!("[updater] Failed to spawn {}: {e}", exe.display());
-                    // Fall through to default restart
-                }
-            }
-        }
+        // On Windows, don't exit here. Let NSIS kill our process — it does
+        // so right before replacing files, which minimizes the visible gap
+        // between the old app disappearing and the new app launching.
+        // The detached batch script (from install_platform) handles relaunch.
+        log::info!("[updater] Windows: waiting for NSIS to terminate us");
+        return Ok(());
     }
     // macOS: use `open` to launch the app in foreground (app.restart() leaves it in background)
     #[cfg(target_os = "macos")]
@@ -580,6 +589,24 @@ mod tests {
             ["linux-x86_64", "linux-aarch64", "darwin-aarch64", "darwin-x86_64", "windows-x86_64"]
                 .contains(&key),
             "unexpected: {key}"
+        );
+    }
+
+    /// Guards against rotating the signing key in `tauri.conf.json` without
+    /// updating `UPDATER_PUBKEY` (or vice versa). If this fails after a key
+    /// rotation, sync both values to the new key.
+    #[test]
+    fn pubkey_matches_tauri_conf() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json"))
+                .expect("parse tauri.conf.json");
+        let conf_pubkey = conf["plugins"]["updater"]["pubkey"]
+            .as_str()
+            .expect("plugins.updater.pubkey must be a string");
+        assert_eq!(
+            UPDATER_PUBKEY.trim(),
+            conf_pubkey.trim(),
+            "UPDATER_PUBKEY must match plugins.updater.pubkey in tauri.conf.json"
         );
     }
 }
