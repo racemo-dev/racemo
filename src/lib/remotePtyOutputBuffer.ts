@@ -2,10 +2,48 @@ import { listenRemote } from "./remoteEvents";
 import { getRemoteTerminal } from "./remoteTerminalRegistry";
 import { logger } from "./logger";
 import { writeToTerminal } from "./terminalWrite";
+import { createSecretStreamMasker, type SecretStreamMasker } from "./secretDetector";
+import { usePrivacyStore } from "../stores/privacyStore";
 
 interface RemotePtyOutputPayload {
   pane_id: string;
   data: number[];
+}
+
+/**
+ * Per-pane secret masker for remote output.
+ * 원격 호스트로부터 받은 터미널 데이터를 xterm에 표시하기 전 민감 정보(토큰, 키 등)를 마스킹.
+ * 청크 경계 스플릿 공격을 방지하기 위해 stream-aware masker를 사용.
+ * privacyStore.enabled이 true일 때만 활성화.
+ */
+const paneMaskers = new Map<string, SecretStreamMasker>();
+
+function getPaneMasker(paneId: string): SecretStreamMasker | null {
+  if (!usePrivacyStore.getState().enabled) {
+    // privacy 비활성화 시 파편 없이 pass-through.
+    paneMaskers.delete(paneId);
+    return null;
+  }
+  let m = paneMaskers.get(paneId);
+  if (!m) {
+    m = createSecretStreamMasker();
+    paneMaskers.set(paneId, m);
+  }
+  return m;
+}
+
+function applyMask(paneId: string, text: string): string {
+  const m = getPaneMasker(paneId);
+  if (!m) return text;
+  return m.push(text);
+}
+
+function flushMask(paneId: string): string {
+  const m = paneMaskers.get(paneId);
+  if (!m) return "";
+  const tail = m.flush();
+  paneMaskers.delete(paneId);
+  return tail;
 }
 
 /**
@@ -32,7 +70,10 @@ export function setupRemotePtyOutputListener(): Promise<() => void> {
 
     const entry = getRemoteTerminal(pane_id);
     if (entry) {
-      writeToTerminal(entry.terminal, text);
+      // 원격에서 받은 출력에 secret masker 적용.
+      // 청크 경계를 넘는 시크릿 검출 + ANSI 이스케이프 보존.
+      const masked = applyMask(pane_id, text);
+      if (masked.length > 0) writeToTerminal(entry.terminal, masked);
     } else {
       let buf = pending.get(pane_id);
       if (!buf) {
@@ -62,8 +103,12 @@ export function flushRemotePtyOutputBuffer(remotePaneId: string): void {
   for (const data of buf) {
     const bytes = new Uint8Array(data);
     const text = flushDecoder.decode(bytes, { stream: true });
-    writeToTerminal(entry.terminal, text);
+    const masked = applyMask(remotePaneId, text);
+    if (masked.length > 0) writeToTerminal(entry.terminal, masked);
   }
+  // 플러시 시점에 masker 꼬리도 내보냄.
+  const tail = flushMask(remotePaneId);
+  if (tail.length > 0) writeToTerminal(entry.terminal, tail);
   pending.delete(remotePaneId);
 }
 
@@ -72,6 +117,7 @@ export function flushRemotePtyOutputBuffer(remotePaneId: string): void {
  */
 export function clearRemotePtyOutputBuffer(remotePaneId: string): void {
   pending.delete(remotePaneId);
+  paneMaskers.delete(remotePaneId);
 }
 
 /**
@@ -80,6 +126,7 @@ export function clearRemotePtyOutputBuffer(remotePaneId: string): void {
 export function clearRemotePtyOutputBuffers(paneIds: string[]): void {
   for (const id of paneIds) {
     pending.delete(id);
+    paneMaskers.delete(id);
   }
 }
 
@@ -88,6 +135,7 @@ export function clearRemotePtyOutputBuffers(paneIds: string[]): void {
  */
 export function clearAllRemotePtyOutputBuffers(): void {
   pending.clear();
+  paneMaskers.clear();
   decoder = new TextDecoder();
 }
 
