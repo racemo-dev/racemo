@@ -2,7 +2,7 @@
 name = "racemo"
 version = "0.0.8"
 description = "GUI Terminal Multiplexer"
-authors = ["junghoyu"]
+authors = ["Racemo Contributors"]
 license = "Apache-2.0"
 edition = "2021"
 rust-version = "1.80"

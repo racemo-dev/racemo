@@ -41,17 +41,3 @@ updates:
       - "rust"
     ignore:
       - dependency-name: "*"
-
-  # Cargo (signaling-server) — 보안 업데이트만
-  - package-ecosystem: "cargo"
-    directory: "/signaling-server"
-    schedule:
-      interval: "monthly"
-    open-pull-requests-limit: 3
-    commit-message:
-      prefix: "chore(deps)"
-    labels:
-      - "dependencies"
-      - "rust"
-    ignore:
-      - dependency-name: "*"
