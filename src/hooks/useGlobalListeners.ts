@@ -40,63 +40,79 @@ export function useGlobalListeners() {
 
   // Global PTY output listener
   useEffect(() => {
-    const unlistenPromise = setupPtyOutputListener();
-    return () => { unlistenPromise.then((unlisten) => unlisten()); };
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    setupPtyOutputListener().then((fn) => { if (cancelled) fn(); else unlisten = fn; });
+    return () => { cancelled = true; unlisten?.(); };
   }, []);
 
   // Global PTY resized listener — sync local xterm when PTY is resized by remote client
   useEffect(() => {
-    const unlistenPromise = setupPtyResizedListener();
-    return () => { unlistenPromise.then((unlisten) => unlisten()); };
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    setupPtyResizedListener().then((fn) => { if (cancelled) fn(); else unlisten = fn; });
+    return () => { cancelled = true; unlisten?.(); };
   }, []);
 
   // Global remote PTY output listener
   useEffect(() => {
-    const unlistenPromise = setupRemotePtyOutputListener();
-    return () => { unlistenPromise.then((unlisten) => unlisten()); };
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    setupRemotePtyOutputListener().then((fn) => { if (cancelled) fn(); else unlisten = fn; });
+    return () => { cancelled = true; unlisten?.(); };
   }, []);
 
   // Global remote PTY resized listener — sync remote xterm.js to host PTY size
   useEffect(() => {
-    const unlistenPromise = setupRemotePtyResizedListener();
-    return () => { unlistenPromise.then((unlisten) => unlisten()); };
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    setupRemotePtyResizedListener().then((fn) => { if (cancelled) fn(); else unlisten = fn; });
+    return () => { cancelled = true; unlisten?.(); };
   }, []);
 
   // Diff 외부창에서 discard/hunk 작업 시 git 상태 갱신
   useEffect(() => {
-    const unlisten = listen<{ cwd: string }>("git:refresh", (e) => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    listen<{ cwd: string }>("git:refresh", (e) => {
       useGitStore.getState().refresh(e.payload.cwd);
-    });
-    return () => { unlisten.then((fn) => fn()); };
+    }).then((fn) => { if (cancelled) fn(); else unlisten = fn; });
+    return () => { cancelled = true; unlisten?.(); };
   }, []);
 
   // 에디터 외부창 → 패널로 이동
   useEffect(() => {
-    const unlisten = listen<{ path: string }>("editor:embed-to-panel", (e) => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    listen<{ path: string }>("editor:embed-to-panel", (e) => {
       openEditorPanel(e.payload.path);
-    });
-    return () => { unlisten.then((fn) => fn()); };
+    }).then((fn) => { if (cancelled) fn(); else unlisten = fn; });
+    return () => { cancelled = true; unlisten?.(); };
   }, []);
 
   // 원격 클라이언트가 파일을 열었을 때 호스트에서도 에디터 열기
   useEffect(() => {
-    const unlisten = listen<{ path: string }>("remote:editor-open", (e) => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    listen<{ path: string }>("remote:editor-open", (e) => {
       openEditorPanel(e.payload.path);
-    });
-    return () => { unlisten.then((fn) => fn()); };
+    }).then((fn) => { if (cancelled) fn(); else unlisten = fn; });
+    return () => { cancelled = true; unlisten?.(); };
   }, []);
 
   // 원격 클라이언트가 에디터 탭을 닫았을 때 호스트에서도 닫기
   useEffect(() => {
-    const unlisten = listen<{ path: string }>("remote:editor-close", (e) => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    listen<{ path: string }>("remote:editor-close", (e) => {
       const store = usePanelEditorStore.getState();
       const idx = store.tabs.findIndex((t: PanelTab) => t.path === e.payload.path);
       if (idx >= 0) {
         store.closeTab(idx);
         if (store.tabs.length <= 1) store.setPanelOpen(false);
       }
-    });
-    return () => { unlisten.then((fn) => fn()); };
+    }).then((fn) => { if (cancelled) fn(); else unlisten = fn; });
+    return () => { cancelled = true; unlisten?.(); };
   }, []);
 
   // 에디터 패널 상태 변경 시 저장 (디바운스)
@@ -127,14 +143,16 @@ export function useGlobalListeners() {
 
   // 앱 포커스 복귀 시 패널 에디터 + 탐색기 자동 갱신
   useEffect(() => {
-    const unlistenPromise = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    getCurrentWindow().onFocusChanged(({ payload: focused }) => {
       if (focused) {
         usePanelEditorStore.getState().reloadAllNonDirtyTabs();
         dirCacheInvalidateAll();
         window.dispatchEvent(new Event(EXPLORER_REFRESH_EVENT));
       }
-    });
-    return () => { unlistenPromise.then((fn) => fn()); };
+    }).then((fn) => { if (cancelled) fn(); else unlisten = fn; });
+    return () => { cancelled = true; unlisten?.(); };
   }, []);
 
   // Debug: Log terminal size on resize

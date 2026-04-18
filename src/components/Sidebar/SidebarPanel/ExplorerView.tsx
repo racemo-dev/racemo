@@ -13,6 +13,7 @@ import type { DirEntry, ContextMenuState, InlineInputState } from "./types";
 import { useContextMenuActions } from "./useContextMenuActions";
 import { useTreeKeyboard } from "./useTreeKeyboard";
 import { ExplorerContextMenu } from "./ExplorerContextMenu";
+import { logger } from "../../../lib/logger";
 
 export default function ExplorerView() {
   const paneCwd = useFocusedCwd();
@@ -60,18 +61,18 @@ export default function ExplorerView() {
     if (mode === "new-file") {
       invoke("create_file", { path: `${parentPath}/${name}` })
         .then(refreshTree)
-        .catch(console.error);
+        .catch(logger.error);
     } else if (mode === "new-dir") {
       invoke("create_directory", { path: `${parentPath}/${name}` })
         .then(refreshTree)
-        .catch(console.error);
+        .catch(logger.error);
     } else if (mode === "rename" && originalName && name !== originalName) {
       invoke("rename_path", {
         oldPath: `${parentPath}/${originalName}`,
         newPath: `${parentPath}/${name}`,
       })
         .then(refreshTree)
-        .catch(console.error);
+        .catch(logger.error);
     }
   }, [inlineInput, inlineValue, refreshTree]);
 
@@ -192,7 +193,7 @@ export default function ExplorerView() {
             dirCacheInvalidate(destFolder);
             window.dispatchEvent(new Event(EXPLORER_REFRESH_EVENT));
           })
-          .catch((err: unknown) => console.error("[DnD] move failed:", err));
+          .catch((err: unknown) => logger.error("[DnD] move failed:", err));
         return;
       }
 
@@ -211,10 +212,10 @@ export default function ExplorerView() {
             const { getBrowserRemoteClient } = await import("../../../lib/webrtcClient");
             getBrowserRemoteClient().sendInput(id, new Uint8Array(bytes));
           } else {
-            invoke("write_to_remote_pty", { paneId: id, data: bytes }).catch(console.error);
+            invoke("write_to_remote_pty", { paneId: id, data: bytes }).catch(logger.error);
           }
         } else {
-          invoke("write_to_pty", { paneId: id, data: bytes }).catch(console.error);
+          invoke("write_to_pty", { paneId: id, data: bytes }).catch(logger.error);
         }
         return;
       }
@@ -232,7 +233,7 @@ export default function ExplorerView() {
             dirCacheInvalidate(normalizedCwd);
             window.dispatchEvent(new Event(EXPLORER_REFRESH_EVENT));
           })
-          .catch((err: unknown) => console.error("[DnD] move failed:", err));
+          .catch((err: unknown) => logger.error("[DnD] move failed:", err));
       }
     };
     window.addEventListener("pointermove", onMove);
