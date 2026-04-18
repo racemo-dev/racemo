@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Added
 - **Per-session Secret Masking is now actually applied to terminal output.** Previously the privacy toggle existed but `maskSecrets()` was never called — turning it on had no effect. The masker now runs on every PTY write (local and remote) via a new `writeToTerminal()` helper in `src/lib/terminalWrite.ts`.
-- `ARCHITECTURE.md` at the repository root for contributor onboarding.
+- `docs/architecture.md` for contributor onboarding.
 - `.github/CODEOWNERS` for automatic reviewer assignment.
 - `.github/FUNDING.yml` enabling the Sponsor button.
 - `package.json` metadata: `description`, `keywords`, `homepage`, `repository`, `bugs`, `engines`.

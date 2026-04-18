@@ -73,6 +73,25 @@ Your PR cannot be merged until all checks pass. Run the verification commands ab
 - **TypeScript/React**: ESLint + Prettier (configured in project).
 - Keep changes focused — one concern per PR.
 
+## PR Labels
+
+Pull requests are auto-labeled by [`.github/labeler.yml`](.github/labeler.yml)
+based on the files you touch. The scheme:
+
+| Label | When it applies |
+|-------|-----------------|
+| `area:frontend` | anything under `src/`, `index.html`, `vite.config.ts` |
+| `area:backend` | `src-tauri/src/**`, `Cargo.toml`, `build.rs` |
+| `area:remote` | `remote/`, `remoteStore.ts`, `proto/` |
+| `area:security` | `SECURITY.md`, `auth.rs`, `secretDetector.ts`, `ipc/` |
+| `area:docs` | `docs/**`, any `*.md` |
+| `area:ci` | workflows, `dependabot.yml`, `scripts/` |
+| `area:build` | `package.json`, lockfiles, tsconfig, eslint config |
+| `area:install` | `install_*`, `winget/` |
+
+You can add semantic labels yourself when opening the PR — `bug`, `feature`,
+`refactor`, `breaking`, `needs-review` — to help reviewers triage.
+
 ## Reporting Issues
 
 - Use [GitHub Issues](https://github.com/racemo-dev/racemo/issues)

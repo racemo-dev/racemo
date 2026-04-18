@@ -21,7 +21,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/racemo-dev/racemo" alt="License" /></a>
   <img src="https://img.shields.io/badge/status-Developer%20Preview-orange" alt="Status" />
   <br/>
-  <a href="https://github.com/racemo-dev/racemo/releases/latest">Download</a> · <a href="#build-from-source">Build from Source</a> · <a href="CONTRIBUTING.md">Contribute</a>
+  <a href="#install">Install</a> · <a href="#build-from-source">Build from Source</a> · <a href="docs/open-core.md">Open Core</a> · <a href="CONTRIBUTING.md">Contribute</a>
 </p>
 
 ---
@@ -60,7 +60,7 @@
   <img src="assets/remote.png" alt="Remote access across devices" width="80%" />
 </p>
 
-> **Note:** Remote features use a hosted signaling relay (`racemo-signal.fly.dev`) for WebRTC connection setup. The signaling server is a closed-source hosted service and is not part of this repository. Terminal data after the initial handshake is fully peer-to-peer.
+> **Note:** Remote features use a hosted signaling relay (`racemo-signal.fly.dev`) for WebRTC connection setup. The signaling server is a closed-source hosted service and is not part of this repository. Terminal data after the initial handshake is fully peer-to-peer. Remote hosting assumes the peer is trusted; see [docs/open-core.md](docs/open-core.md), [docs/PROTOCOL.md](docs/PROTOCOL.md), and [SECURITY.md](SECURITY.md).
 
 ### AI
 - Error explainer — when a command fails, get the root cause and a suggested fix inline
@@ -150,6 +150,12 @@ All platforms include automatic updates.
 └─────────────────────────────────────────────┘
 ```
 
+More detail:
+- [docs/architecture.md](docs/architecture.md) - client architecture and runtime boundaries
+- [docs/open-core.md](docs/open-core.md) - what is open-source vs managed
+- [docs/PROTOCOL.md](docs/PROTOCOL.md) - remote protocol and trust model
+- [docs/FAQ.md](docs/FAQ.md) - common questions about hosting, security, and licensing
+
 ## Build from Source
 
 ### Prerequisites
@@ -178,7 +184,7 @@ npm run tauri:build     # Production build
 - [ ] Prompt-to-prompt jump & command separator with execution time
 - [ ] Exit code badge (success/failure at a glance)
 
-See [Issues](https://github.com/racemo-dev/racemo/issues) for detailed plans and discussion.
+See [docs/roadmap.md](docs/roadmap.md) and [Issues](https://github.com/racemo-dev/racemo/issues) for detailed plans and discussion.
 
 ## Contributing
 
