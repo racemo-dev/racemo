@@ -1,0 +1,62 @@
+# PR auto-labeler config — consumed by .github/workflows/labeler.yml
+#
+# Labels follow the scheme documented in CONTRIBUTING.md. Keep patterns as
+# specific as possible to avoid over-labeling mechanical changes.
+
+area:frontend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/**/*'
+          - 'index.html'
+          - 'vite.config.ts'
+
+area:backend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src-tauri/src/**/*'
+          - 'src-tauri/Cargo.toml'
+          - 'src-tauri/build.rs'
+
+area:remote:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src-tauri/src/remote/**/*'
+          - 'src/stores/remoteStore.ts'
+          - 'proto/**/*'
+
+area:security:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'SECURITY.md'
+          - 'src-tauri/src/auth.rs'
+          - 'src/lib/secretDetector.ts'
+          - 'src-tauri/src/ipc/**/*'
+
+area:docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'docs/**/*'
+          - '**/*.md'
+
+area:ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/workflows/**/*'
+          - '.github/dependabot.yml'
+          - 'scripts/**/*'
+
+area:build:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'package.json'
+          - 'package-lock.json'
+          - 'src-tauri/Cargo.lock'
+          - 'eslint.config.js'
+          - 'tsconfig*.json'
+
+area:install:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'install_*.sh'
+          - 'install_*.ps1'
+          - 'winget/**/*'

@@ -40,6 +40,9 @@ jobs:
           workspaces: src-tauri
           prefix-key: v1
 
+      - name: Version Manifest Sync
+        run: node scripts/check-version-sync.cjs
+
       - name: Frontend Lint
         run: npm run lint
 

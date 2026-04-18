@@ -41,6 +41,17 @@ export default defineConfig([
         'error',
         { allowConstantExport: true },
       ],
+      // Use the central `logger` (src/lib/logger.ts) — it forwards to the
+      // Rust-side log pipeline. Direct console calls are only allowed inside
+      // logger.ts itself (see override below). Kept at 'warn' until existing
+      // call sites are cleaned up; see tasks/oss-frontend-minor-cleanup.md.
+      'no-console': 'warn',
+    },
+  },
+  {
+    files: ['src/lib/logger.ts'],
+    rules: {
+      'no-console': 'off',
     },
   },
 ])

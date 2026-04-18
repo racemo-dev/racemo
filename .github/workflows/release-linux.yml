@@ -21,6 +21,7 @@ jobs:
         id: meta
         shell: bash
         run: |
+          set -euo pipefail
           if [ -n "${{ github.event.inputs.tag }}" ]; then
             TAG="${{ github.event.inputs.tag }}"
           else
@@ -34,6 +35,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         shell: bash
         run: |
+          set -euo pipefail
           TAG="${{ steps.meta.outputs.tag }}"
           REPO="racemo-dev/racemo"
           gh release view "$TAG" --repo "$REPO" > /dev/null 2>&1 || \
@@ -97,6 +99,7 @@ jobs:
         # 사용자가 설치해도 auto-update를 받지 못해 혼란만 생긴다. APT repo를
         # 제대로 운영하게 되면 다시 켜기.
         run: |
+          set -euo pipefail
           npm run check:deps
           npm run build:server
           npm run build
@@ -107,6 +110,7 @@ jobs:
       - name: Rename Linux artifacts
         shell: bash
         run: |
+          set -euo pipefail
           VERSION="${{ needs.prepare-release.outputs.version }}"
           ARCH="${{ matrix.arch }}"
           BUNDLE_DIR="src-tauri/target/release/bundle"
@@ -127,16 +131,23 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         shell: bash
         run: |
+          set -euo pipefail
           VERSION="${{ needs.prepare-release.outputs.version }}"
           ARCH="${{ matrix.arch }}"
           APPIMAGE="src-tauri/target/release/bundle/appimage/Racemo_${VERSION}_Linux_${ARCH}.AppImage"
           npx tauri signer sign "$APPIMAGE"
+          SIG="${APPIMAGE}.sig"
+          if [ ! -s "$SIG" ]; then
+            echo "ERROR: signature output missing or empty: $SIG" >&2
+            exit 1
+          fi
 
       # 보안: 빌드한 .sig가 tauri.conf.json의 pubkey와 일치하는지 검증.
       # 일치하지 않으면 기존 사용자가 auto-update 받을 수 없는 broken release가 됨.
       - name: Verify updater key match
         shell: bash
         run: |
+          set -euo pipefail
           VERSION="${{ needs.prepare-release.outputs.version }}"
           ARCH="${{ matrix.arch }}"
           SIG="src-tauri/target/release/bundle/appimage/Racemo_${VERSION}_Linux_${ARCH}.AppImage.sig"
@@ -144,13 +155,17 @@ jobs:
             echo "ERROR: signature file missing: $SIG" >&2
             exit 1
           fi
-          python3 scripts/verify-updater-key.py --sig "$SIG"
+          python3 scripts/verify-updater-key.py --sig "$SIG" || {
+            echo "ERROR: updater pubkey mismatch for $SIG" >&2
+            exit 1
+          }
 
       - name: Upload artifacts to GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         shell: bash
         run: |
+          set -euo pipefail
           TAG="${{ needs.prepare-release.outputs.tag }}"
           REPO="racemo-dev/racemo"
 
