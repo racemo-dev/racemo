@@ -15,6 +15,14 @@ import { logger } from "../lib/logger";
 import { disposeAllRemoteTerminals, disposeRemoteTerminals } from "../lib/remoteTerminalRegistry";
 import { clearAllRemotePtyOutputBuffers, clearRemotePtyOutputBuffers } from "../lib/remotePtyOutputBuffer";
 
+/** Validate pairing code / device ID / room code before sending to backend */
+const REMOTE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+function validateRemoteId(value: string, label: string): void {
+  if (!value || !REMOTE_ID_RE.test(value)) {
+    throw new Error(`Invalid ${label}: must be 1-64 alphanumeric/dash/underscore characters`);
+  }
+}
+
 type RemoteStatus = "disconnected" | "connecting" | "reconnecting" | "waiting" | "connected" | "failed";
 // Backend may emit "account_waiting" for account-based hosting — treat as "waiting"
 const normalizeStatus = (s: string): RemoteStatus =>
@@ -226,6 +234,7 @@ export const useRemoteStore = create<RemoteStore>((set, get) => ({
         await getBrowserRemoteClient().connect(DEFAULT_SIGNALING_WS_URL, code);
         return;
       }
+      validateRemoteId(code, "pairing code");
       await invoke("connect_to_remote_host", { pairingCode: code });
     } catch (e) {
       set({ clientStatus: "failed", clientError: String(e) });
@@ -313,6 +322,7 @@ export const useRemoteStore = create<RemoteStore>((set, get) => ({
         getBrowserRemoteClient().disconnect();
         return;
       }
+      if (deviceId) validateRemoteId(deviceId, "device ID");
       await invoke("disconnect_remote", { deviceId: deviceId ?? null });
       logger.debug(`[remoteStore] disconnect: backend command sent`);
     } catch (e) {
@@ -326,6 +336,7 @@ export const useRemoteStore = create<RemoteStore>((set, get) => ({
       pendingConnectionRequests: s.pendingConnectionRequests.filter((r) => r.roomCode !== roomCode),
     }));
     try {
+      validateRemoteId(roomCode, "room code");
       await invoke("approve_account_connection", { roomCode, approved: true });
     } catch (e) {
       set({ hostError: String(e) });
@@ -337,6 +348,7 @@ export const useRemoteStore = create<RemoteStore>((set, get) => ({
       pendingConnectionRequests: s.pendingConnectionRequests.filter((r) => r.roomCode !== roomCode),
     }));
     try {
+      validateRemoteId(roomCode, "room code");
       await invoke("approve_account_connection", { roomCode, approved: false });
     } catch (e) {
       set({ hostError: String(e) });
@@ -364,6 +376,7 @@ export const useRemoteStore = create<RemoteStore>((set, get) => ({
         getBrowserRemoteClient().requestSessionList();
         return;
       }
+      if (deviceId) validateRemoteId(deviceId, "device ID");
       await invoke("request_remote_session_list", { deviceId: deviceId ?? null });
     } catch (e) {
       set({ clientError: String(e), remoteSessionsLoading: false });
@@ -403,6 +416,7 @@ export const useRemoteStore = create<RemoteStore>((set, get) => ({
       connectionMode: "account",
     });
     try {
+      validateRemoteId(deviceId, "device ID");
       await invoke("connect_to_device_account", { deviceId });
     } catch (e) {
       const conns = { ...get().connections };

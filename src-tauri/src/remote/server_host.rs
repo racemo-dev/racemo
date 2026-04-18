@@ -21,14 +21,8 @@ const HEARTBEAT_INTERVAL_SECS: u64 = 30;
 /// Maximum allowed Data Channel message size (16 MB).
 /// Messages exceeding this limit are dropped to prevent OOM from malicious peers.
 const MAX_DC_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
-/// 플랜에 따른 최대 동시 클라이언트 수를 반환합니다.
-/// - "pro": 10개
-/// - 그 외 (free 등): 1개
-fn max_clients_for_plan(plan: &str) -> usize {
-    if plan == "pro" { 10 } else { 1 }
-}
-
 /// 현재 클라이언트 수가 플랜 제한에 도달했는지 여부를 반환합니다.
+/// 여기서 사용되는 `max`는 서버 DeviceRegistered 응답에서 내려온 권위적 값.
 fn client_limit_exceeded(current_count: usize, max: usize) -> bool {
     current_count >= max
 }
@@ -781,9 +775,11 @@ async fn account_hosting_loop(
     };
 
     let host_login = crate::auth::login_from_jwt(&jwt).unwrap_or_default();
+    // NOTE: JWT에서 읽은 plan은 미검증값이므로 **UI 로그 용도로만** 사용.
+    // 실제 max_clients는 서버가 DeviceRegistered 메시지에서 내려주는 값을 사용한다.
+    // 서버 값이 없을 때의 fallback은 가장 보수적인 1 (free 플랜 수준).
     let host_plan = crate::auth::plan_from_jwt(&jwt).unwrap_or_default();
-    let max_clients = max_clients_for_plan(&host_plan);
-    log::info!("[server-host:acct] plan={host_plan} max_clients={max_clients}");
+    log::info!("[server-host:acct] (unverified) plan={host_plan} — waiting for server-authoritative max_clients");
 
     log::info!("[server-host:acct] Connecting to signaling: {signaling_url}");
     let mut signaling = match SignalingClient::connect_with_token(&signaling_url, "host", &jwt, &extra_params).await {
@@ -802,14 +798,23 @@ async fn account_hosting_loop(
     };
 
     // Wait for DeviceRegistered confirmation
+    // 서버가 권위적으로 내려주는 max_clients를 여기서 캡처. 없으면 1로 fallback.
+    let mut max_clients: usize = 1;
     {
         let mut frt = first_result_tx;
         loop {
             tokio::select! {
                 msg = signaling.recv() => {
                     match msg {
-                        Some(SignalingMessage::DeviceRegistered { device_id, .. }) => {
-                            log::info!("[server-host:acct] Registered as device: {device_id}");
+                        Some(SignalingMessage::DeviceRegistered { device_id, max_clients: server_max, .. }) => {
+                            if let Some(mc) = server_max {
+                                // 서버 제공값이 있으면 신뢰. 로컬 JWT decode 결과는 무시.
+                                max_clients = mc;
+                            }
+                            log::info!(
+                                "[server-host:acct] Registered as device: {device_id} (max_clients={max_clients}, server-authoritative={})",
+                                server_max.is_some()
+                            );
                             if let Some(tx) = frt.take() {
                                 let _ = tx.send(Ok(()));
                             }
@@ -2023,18 +2028,6 @@ fn handle_api_request(req: &proto::ApiRequest) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_max_clients_for_plan_free() {
-        assert_eq!(max_clients_for_plan("free"), 1);
-        assert_eq!(max_clients_for_plan(""), 1);
-        assert_eq!(max_clients_for_plan("unknown"), 1);
-    }
-
-    #[test]
-    fn test_max_clients_for_plan_pro() {
-        assert_eq!(max_clients_for_plan("pro"), 10);
-    }
 
     #[test]
     fn test_client_limit_not_exceeded_below_max() {

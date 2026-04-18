@@ -34,7 +34,15 @@ pub enum SignalingMessage {
     RoomExpired,
 
     // Account-based: Server → Host
-    DeviceRegistered { device_id: String, device_name: String },
+    // max_clients: 서버가 계정 플랜을 검증해 내려주는 동시 연결 상한.
+    //   - 클라이언트는 이 값을 신뢰해야 하며, 자기 JWT의 plan 필드를 직접 해석하지 않음.
+    //   - 서버가 값을 안 주면 None — 가장 보수적인 기본값(1)으로 fallback.
+    DeviceRegistered {
+        device_id: String,
+        device_name: String,
+        #[serde(default)]
+        max_clients: Option<usize>,
+    },
     ConnectionRequest {
         room_code: String,
         #[serde(default)]
