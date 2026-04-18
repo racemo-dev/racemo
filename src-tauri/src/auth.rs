@@ -139,24 +139,42 @@ fn decrypt_vault(key: &[u8; 32], blob: &[u8]) -> Result<TokenVault, String> {
 fn read_vault() -> TokenVault {
     let path = match token_file_path() {
         Ok(p) => p,
-        Err(_) => return TokenVault::empty(),
+        Err(e) => {
+            log::debug!(target: "auth::vault", "vault path unavailable: {e}");
+            return TokenVault::empty();
+        }
     };
     let blob = match std::fs::read(&path) {
         Ok(b) => b,
-        Err(_) => return TokenVault::empty(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return TokenVault::empty(),
+        Err(e) => {
+            log::warn!(target: "auth::vault", "failed to read vault file: {e}");
+            return TokenVault::empty();
+        }
     };
     let key = match machine_key() {
         Ok(k) => k,
-        Err(_) => return TokenVault::empty(),
+        Err(e) => {
+            log::warn!(target: "auth::vault", "machine key unavailable: {e}");
+            return TokenVault::empty();
+        }
     };
-    decrypt_vault(&key, &blob).unwrap_or_else(|_| TokenVault::empty())
+    decrypt_vault(&key, &blob).unwrap_or_else(|e| {
+        log::warn!(
+            target: "auth::vault",
+            "vault decrypt failed; treating as empty (user may need to re-login): {e}"
+        );
+        TokenVault::empty()
+    })
 }
 
 fn write_vault(vault: &TokenVault) -> Result<(), String> {
     let path = token_file_path()?;
     let key = machine_key()?;
     let blob = encrypt_vault(&key, vault)?;
-    // Write with 0600 permission on unix.
+    // 원자적 교체: .tmp 로 쓰고 rename.
+    let tmp_path = path.with_extension("bin.tmp");
+
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
@@ -165,15 +183,93 @@ fn write_vault(vault: &TokenVault) -> Result<(), String> {
             .create(true)
             .truncate(true)
             .mode(0o600)
-            .open(&path)
+            .open(&tmp_path)
             .map_err(|e| format!("open vault: {e}"))?;
         std::io::Write::write_all(&mut f, &blob).map_err(|e| format!("write vault: {e}"))?;
+        // 디렉토리 권한도 제한(0700) — 부모 디렉토리 리스팅 방지.
+        if let Some(parent) = path.parent() {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+        }
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     {
-        std::fs::write(&path, &blob).map_err(|e| format!("write vault: {e}"))?;
+        write_vault_windows(&tmp_path, &blob)?;
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        std::fs::write(&tmp_path, &blob).map_err(|e| format!("write vault: {e}"))?;
+    }
+
+    std::fs::rename(&tmp_path, &path)
+        .map_err(|e| format!("rename vault: {e}"))?;
+    Ok(())
+}
+
+/// Windows에서 토큰 파일을 CurrentUser 전용으로 기록.
+/// - `icacls`로 상속 끊고 소유자에게만 접근 부여.
+/// - 실패해도 write 자체는 진행 (기본 사용자 프로필 ACL로 fallback).
+///   프로필 디렉토리는 일반적으로 SYSTEM/Administrators/해당 사용자만 접근 가능.
+#[cfg(windows)]
+fn write_vault_windows(tmp_path: &std::path::Path, blob: &[u8]) -> Result<(), String> {
+    std::fs::write(tmp_path, blob).map_err(|e| format!("write vault: {e}"))?;
+
+    // icacls 로 ACL 제한: 상속 제거, SYSTEM과 현재 사용자만 Full Control.
+    let path_str = tmp_path
+        .to_str()
+        .ok_or_else(|| "vault path not utf-8".to_string())?;
+
+    // 현재 사용자명을 %USERNAME% 환경변수에서 가져옴. 없으면 기본 ACL 유지.
+    // Windows 사용자명은 일반적으로 [A-Za-z0-9 .-_]만 허용. 비정상 문자가 있으면
+    // icacls에 이상하게 파싱될 수 있으므로 화이트리스트 이외는 skip(기본 ACL 사용).
+    if let Ok(user) = std::env::var("USERNAME") {
+        if !user.is_empty() && is_safe_windows_username(&user) {
+            use std::process::Command;
+            // 상속 제거 (/inheritance:r), 기존 ACL 제거, SYSTEM / 사용자에게만 F(Full) 부여.
+            // Command::args는 배열로 전달되므로 shell quoting 문제는 없으나,
+            // icacls 자체의 args 파싱 안전성을 위해 username은 사전 검증.
+            match Command::new("icacls")
+                .args([
+                    path_str,
+                    "/inheritance:r",
+                    "/grant:r",
+                    &format!("{user}:(F)"),
+                    "/grant:r",
+                    "SYSTEM:(F)",
+                ])
+                .output()
+            {
+                Ok(out) if !out.status.success() => {
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    log::warn!(
+                        target: "auth::vault",
+                        code = ?out.status.code(),
+                        "icacls failed to tighten vault ACL; file may be world-readable: {stderr}"
+                    );
+                }
+                Err(e) => {
+                    log::warn!(
+                        target: "auth::vault",
+                        "could not spawn icacls; vault ACL not hardened: {e}"
+                    );
+                }
+                Ok(_) => {}
+            }
+        }
     }
     Ok(())
+}
+
+#[cfg(windows)]
+fn is_safe_windows_username(s: &str) -> bool {
+    // SAM 계정명 규칙: 길이 1-20, 제어 문자·`" / \ [ ] : ; | = , + * ? < >` 금지.
+    // 보수적으로 영숫자/공백/점/하이픈/언더스코어만 허용.
+    if s.len() > 64 {
+        return false;
+    }
+    s.chars().all(|c| {
+        c.is_ascii_alphanumeric() || matches!(c, ' ' | '.' | '-' | '_')
+    })
 }
 
 fn save_tokens(_app: &AppHandle, access_token: &str, refresh_token: &str) -> Result<(), String> {
@@ -200,7 +296,17 @@ fn set_extra(key: &str, value: &str) -> Result<(), String> {
     write_vault(&vault)
 }
 
-// ── JWT Decode (client-side, no verification) ──
+// ── JWT Decode (client-side, UNVERIFIED — display/UI hints only) ──
+//
+// SECURITY WARNING: 이 파일의 JWT 디코딩 함수들은 **서명을 검증하지 않습니다**.
+// 클라이언트가 자신의 토큰에서 `login`/`plan` 등의 정보를 꺼내는 용도로만 사용합니다.
+//
+// 절대 해선 안 되는 것:
+//   - 이 값으로 기능 게이팅(예: "pro만 허용") 결정
+//   - 이 값으로 보안 경계 판단(권한, 쿼터)
+//   - 다른 사용자의 JWT를 받아 해석
+//
+// 모든 권한 결정은 서버가 서명을 검증한 후 내려주는 응답에 기반해야 합니다.
 
 fn base64url_decode(input: &str) -> Option<Vec<u8>> {
     let b64 = input.replace('-', "+").replace('_', "/");
@@ -272,11 +378,17 @@ pub fn jwt_expired(token: &str) -> bool {
 }
 
 /// Decode the login (GitHub username) from a JWT without verification.
+/// UI 표시용입니다. 권한 결정에 절대 사용 금지.
 pub fn login_from_jwt(jwt: &str) -> Option<String> {
     jwt_to_user(jwt).map(|u| u.login)
 }
 
 /// Decode the plan from a JWT without verification.
+///
+/// SECURITY: 이 값은 서명 검증 없이 페이로드를 그대로 디코드한 것이므로
+/// 공격자가 자기 토큰을 조작하면 `pro`/`enterprise`로 위조할 수 있습니다.
+/// 반드시 UI 힌트·로깅 용도로만 사용하세요. 실제 쿼터/권한은 서버가 검증해서
+/// 응답 메시지(DeviceRegistered 등)에 포함해 내려주는 값을 사용해야 합니다.
 pub fn plan_from_jwt(jwt: &str) -> Option<String> {
     jwt_to_user(jwt).map(|u| u.plan)
 }

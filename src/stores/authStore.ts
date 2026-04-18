@@ -101,9 +101,11 @@ export const useAuthStore = create<AuthStore>((set) => ({
     });
     // Explicit cancel also drops any pending "resume hosting after login"
     // intent so we don't auto-host on a later re-login.
-    void import("./remoteStore").then(({ useRemoteStore }) => {
-      useRemoteStore.getState().setPendingHostAfterLogin(false);
-    });
+    import("./remoteStore")
+      .then(({ useRemoteStore }) => {
+        useRemoteStore.getState().setPendingHostAfterLogin(false);
+      })
+      .catch((e) => logger.error("failed to clear pending host intent (cancelLogin):", e));
   },
 
   // Hide the device flow dialog without cancelling the polling. Used when the
@@ -164,9 +166,11 @@ function pollForToken(deviceCode: string, interval: number, expiresIn: number) {
   // timed-out device flow. Without this, the intent can outlive the login
   // attempt and auto-start a share on an unrelated future login.
   const clearPendingIntents = () => {
-    void import("./remoteStore").then(({ useRemoteStore }) => {
-      useRemoteStore.getState().setPendingHostAfterLogin(false);
-    });
+    import("./remoteStore")
+      .then(({ useRemoteStore }) => {
+        useRemoteStore.getState().setPendingHostAfterLogin(false);
+      })
+      .catch((e) => logger.error("failed to clear pending host intent (pollForToken):", e));
   };
 
   const poll = async () => {
