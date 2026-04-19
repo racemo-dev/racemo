@@ -1688,7 +1688,7 @@ fn read_merged_history(limit: usize) -> Vec<String> {
     }
 
     // Sort newest-first, deduplicate
-    all.sort_by(|a, b| b.0.cmp(&a.0));
+    all.sort_by_key(|e| std::cmp::Reverse(e.0));
     let mut seen = HashSet::new();
     all.into_iter()
         .filter_map(|(_, cmd)| if seen.insert(cmd.clone()) { Some(cmd) } else { None })

@@ -105,7 +105,7 @@ pub fn read_gemini_history(max: usize) -> Vec<GeminiHistoryEntry> {
         }
     }
 
-    entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    entries.sort_by_key(|e| std::cmp::Reverse(e.timestamp));
     entries.truncate(max);
     entries
 }

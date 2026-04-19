@@ -145,7 +145,7 @@ fn parse_history(text: &str, max: usize) -> Vec<ClaudeHistoryEntry> {
     }
 
     let mut entries: Vec<ClaudeHistoryEntry> = by_session.into_values().collect();
-    entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    entries.sort_by_key(|e| std::cmp::Reverse(e.timestamp));
     entries.truncate(max);
     entries
 }

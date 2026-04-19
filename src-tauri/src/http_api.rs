@@ -113,8 +113,8 @@ async fn handle_list_directory(Query(params): Query<PathQuery>) -> Result<Json<V
             }
         }
     }
-    dirs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    dirs.sort_by_key(|e| e.name.to_lowercase());
+    files.sort_by_key(|e| e.name.to_lowercase());
     dirs.extend(files);
     Ok(Json(dirs))
 }

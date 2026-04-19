@@ -212,16 +212,15 @@ pub async fn connect_to_remote_host(
                                     log::warn!("Failed to add ICE candidate: {e}");
                                 }
                             }
-                            Some(SignalingMessage::ConnectionResponse { approved, .. }) => {
-                                if !approved {
-                                    let message = "Host rejected the connection".to_string();
-                                    log::warn!("[CLIENT:pairing] Connection rejected by host");
-                                    let _ = app_handle.emit("remote-client-status", serde_json::json!({
-                                        "status": "failed", "error": message, "gen": gen, "device_id": device_id_spawn
-                                    }));
-                                    return;
-                                }
+                            Some(SignalingMessage::ConnectionResponse { approved: false, .. }) => {
+                                let message = "Host rejected the connection".to_string();
+                                log::warn!("[CLIENT:pairing] Connection rejected by host");
+                                let _ = app_handle.emit("remote-client-status", serde_json::json!({
+                                    "status": "failed", "error": message, "gen": gen, "device_id": device_id_spawn
+                                }));
+                                return;
                             }
+                            Some(SignalingMessage::ConnectionResponse { .. }) => {}
                             Some(SignalingMessage::Error { message, .. }) => {
                                 log::error!("Signaling error: {message}");
                                 let _ = app_handle.emit("remote-client-status", serde_json::json!({
@@ -774,16 +773,15 @@ async fn negotiate_account_dc(
                             log::warn!("[{log_prefix}] Failed to add ICE: {e}");
                         }
                     }
-                    Some(SignalingMessage::ConnectionResponse { approved, .. }) => {
-                        if !approved {
-                            let message = "Host rejected the connection (client limit reached)".to_string();
-                            log::warn!("[CLIENT:{log_prefix}] Connection rejected by host: {message}");
-                            let _ = app_handle.emit("remote-client-status", serde_json::json!({
-                                "status": "failed", "error": message, "gen": gen, "device_id": device_id
-                            }));
-                            return false;
-                        }
+                    Some(SignalingMessage::ConnectionResponse { approved: false, .. }) => {
+                        let message = "Host rejected the connection (client limit reached)".to_string();
+                        log::warn!("[CLIENT:{log_prefix}] Connection rejected by host: {message}");
+                        let _ = app_handle.emit("remote-client-status", serde_json::json!({
+                            "status": "failed", "error": message, "gen": gen, "device_id": device_id
+                        }));
+                        return false;
                     }
+                    Some(SignalingMessage::ConnectionResponse { .. }) => {}
                     Some(SignalingMessage::Error { message, .. }) => {
                         let _ = app_handle.emit("remote-client-status", serde_json::json!({
                             "status": "failed", "error": message, "gen": gen, "device_id": device_id

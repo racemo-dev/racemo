@@ -55,8 +55,8 @@ pub fn list_directory(path: String) -> Result<Vec<DirEntry>, String> {
             });
         }
     }
-    dirs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    dirs.sort_by_key(|e| e.name.to_lowercase());
+    files.sort_by_key(|e| e.name.to_lowercase());
     dirs.extend(files);
     Ok(dirs)
 }
@@ -109,8 +109,8 @@ pub fn list_directory_gitfiltered(path: String, git_root: Option<String>) -> Res
             files.push(DirEntry { name, entry_type: "file".into() });
         }
     }
-    dirs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    dirs.sort_by_key(|e| e.name.to_lowercase());
+    files.sort_by_key(|e| e.name.to_lowercase());
     dirs.extend(files);
     Ok(dirs)
 }
