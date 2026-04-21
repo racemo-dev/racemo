@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 // invoke no longer needed here — drop actions moved to ExplorerView
 import { openEditorPanel, openEditorExternalWindow } from "../../../lib/editorWindow";
 import { isTauri } from "../../../lib/bridge";
+import { logger } from "../../../lib/logger";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { useGitStore } from "../../../stores/gitStore";
 import GitStatusIcon, { getStatusColor } from "../GitStatusIcon";
@@ -122,7 +123,7 @@ export const DirTreeNode = memo(function DirTreeNode({
 
   const handleOpenFile = useCallback(() => {
     if (!isDir && isTauri()) {
-      openEditorPanel(fullPath).catch(console.error);
+      openEditorPanel(fullPath).catch((e) => logger.warn("openEditorPanel failed", e));
     }
   }, [isDir, fullPath]);
 
@@ -131,7 +132,7 @@ export const DirTreeNode = memo(function DirTreeNode({
     if (isDir) {
       onToggleDir(fullPath);
     } else if (e.ctrlKey || e.metaKey) {
-      openEditorExternalWindow(fullPath, true).catch(console.error);
+      openEditorExternalWindow(fullPath, true).catch((e) => logger.warn("openEditorExternalWindow failed", e));
     } else if (singleClickOpen) {
       handleOpenFile();
     }
@@ -234,7 +235,7 @@ export const DirTreeNode = memo(function DirTreeNode({
               <FileIcon name={entry.name} />
             </>
           )}
-          <span className="truncate" style={statusColor ? { color: statusColor } : undefined}>{entry.name}</span>
+          <span className="truncate" title={entry.name} style={statusColor ? { color: statusColor } : undefined}>{entry.name}</span>
           <GitStatusIcon status={gitStatus} />
         </div>
       )}

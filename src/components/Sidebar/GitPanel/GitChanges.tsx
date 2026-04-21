@@ -10,8 +10,7 @@ import { useGitStore } from "../../../stores/gitStore";
 import { useShallow } from "zustand/react/shallow";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { useGitT } from "../../../lib/i18n/git";
-import { openDiffWindow } from "../../../lib/diffWindow";
-import { usePanelEditorStore } from "../../../stores/panelEditorStore";
+import { logger } from "../../../lib/logger";
 import type { GitStatusEntry } from "../../../types/git";
 import { SectionHeader, FileEntry, IconButton } from "./shared";
 import CommitForm from "./CommitForm";
@@ -30,7 +29,6 @@ export default function GitChanges({ cwd, onDiffOpen }: { cwd: string; onDiffOpe
   const singleClickOpen = useSettingsStore((s) => s.singleClickOpen);
   const [changesOpen, setChangesOpen] = useState(true);
   const [commitMsg, setCommitMsg] = useState("");
-  const { openDiffTab } = usePanelEditorStore.getState();
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entry: GitStatusEntry } | null>(null);
   const [discardedFiles, setDiscardedFiles] = useState<string[]>([]);
@@ -129,10 +127,8 @@ export default function GitChanges({ cwd, onDiffOpen }: { cwd: string; onDiffOpe
                     : undefined
                 }
                 onDiff={() => onDiffOpen(e.path, e.staged)}
-                onClick={(ev) => {
-                  if (ev.ctrlKey || ev.metaKey) {
-                    openDiffWindow(cwd, e.path, e.staged);
-                  } else if (singleClickOpen) {
+                onClick={() => {
+                  if (singleClickOpen) {
                     onDiffOpen(e.path, e.staged);
                   }
                 }}
@@ -223,26 +219,14 @@ export default function GitChanges({ cwd, onDiffOpen }: { cwd: string; onDiffOpe
               {t("ctx.discardChanges")}
             </button>
           )}
-          {contextMenu.entry.status !== "untracked" && (<>
-            <button
-              className="sb-ctx-item text-left hover:bg-[var(--bg-overlay)] transition-colors"
-              onClick={() => { openDiffTab(cwd, contextMenu.entry.path, contextMenu.entry.staged); setContextMenu(null); }}
-            >
-              {t("ctx.diffPanel")}
-            </button>
+          {contextMenu.entry.status !== "untracked" && (
             <button
               className="sb-ctx-item text-left hover:bg-[var(--bg-overlay)] transition-colors"
               onClick={() => { onDiffOpen(contextMenu.entry.path, contextMenu.entry.staged); setContextMenu(null); }}
             >
-              {t("ctx.diffPopup")}
+              {t("ctx.diffPanel")}
             </button>
-            <button
-              className="sb-ctx-item text-left hover:bg-[var(--bg-overlay)] transition-colors"
-              onClick={() => { openDiffWindow(cwd, contextMenu.entry.path, contextMenu.entry.staged).catch(console.error); setContextMenu(null); }}
-            >
-              <span>{t("ctx.diffWindow")}</span><span className="sb-ctx-shortcut">Ctrl+Click</span>
-            </button>
-          </>)}
+          )}
           <button
             className="sb-ctx-item text-left hover:bg-[var(--bg-overlay)] transition-colors"
             onClick={() => { addToGitignore(cwd, contextMenu.entry.path); setContextMenu(null); }}
@@ -254,7 +238,7 @@ export default function GitChanges({ cwd, onDiffOpen }: { cwd: string; onDiffOpe
             className="sb-ctx-item text-left hover:bg-[var(--bg-overlay)] transition-colors"
             onClick={() => {
               const fullPath = cwd.endsWith("/") ? cwd + contextMenu.entry.path : cwd + "/" + contextMenu.entry.path;
-              invoke("open_in_default_app", { path: fullPath }).catch(console.error);
+              invoke("open_in_default_app", { path: fullPath }).catch((e) => logger.warn("action failed", e));
               setContextMenu(null);
             }}
           >
@@ -264,7 +248,7 @@ export default function GitChanges({ cwd, onDiffOpen }: { cwd: string; onDiffOpe
             className="sb-ctx-item text-left hover:bg-[var(--bg-overlay)] transition-colors"
             onClick={() => {
               const fullPath = cwd.endsWith("/") ? cwd + contextMenu.entry.path : cwd + "/" + contextMenu.entry.path;
-              invoke("reveal_in_file_manager", { path: fullPath }).catch(console.error);
+              invoke("reveal_in_file_manager", { path: fullPath }).catch((e) => logger.warn("action failed", e));
               setContextMenu(null);
             }}
           >
@@ -274,7 +258,7 @@ export default function GitChanges({ cwd, onDiffOpen }: { cwd: string; onDiffOpe
             className="sb-ctx-item text-left hover:bg-[var(--bg-overlay)] transition-colors"
             onClick={() => {
               const fullPath = cwd.endsWith("/") ? cwd + contextMenu.entry.path : cwd + "/" + contextMenu.entry.path;
-              writeText(fullPath).catch(console.error);
+              writeText(fullPath).catch((e) => logger.warn("action failed", e));
               setContextMenu(null);
             }}
           >

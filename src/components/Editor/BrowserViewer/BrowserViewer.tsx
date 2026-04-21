@@ -53,7 +53,21 @@ export default function BrowserViewer({ id, url, onUrlChange }: BrowserViewerPro
 
     setIsLoading(true);
     getOrCreateWebview(id, url, r)
-      .then(() => { setIsLoading(false); setHasWebview(true); })
+      .then((wv) => {
+        // Re-sync after async creation — container may have resized during webview init
+        const cur = container.getBoundingClientRect();
+        const cx = Math.round(cur.left) + 1;
+        const cy = Math.round(cur.top);
+        const cw = Math.max(0, Math.round(cur.width) - 2);
+        const ch = Math.round(cur.height);
+        if (cw > 0 && ch > 0 && (cx !== r.x || cy !== r.y || cw !== r.width || ch !== r.height)) {
+          rectRef.current = { x: cx, y: cy, width: cw, height: ch };
+          wv.setPosition(cx, cy).catch(() => {});
+          wv.setSize(cw, ch).catch(() => {});
+        }
+        setIsLoading(false);
+        setHasWebview(true);
+      })
       .catch(() => setIsLoading(false));
 
     return () => { hideWebview(id); };

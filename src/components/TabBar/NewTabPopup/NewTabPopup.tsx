@@ -16,6 +16,7 @@ import { LAYOUT_ICONS } from "./layoutIcons";
 import { getRecentFolders, saveRecentFolder, getFolderName, getUniqueTabName } from "./helpers";
 import DuplicateConfirmDialog from "./DuplicateConfirmDialog";
 import RecentFoldersList from "./RecentFoldersList";
+import { BrowserHideGuard } from "../../Editor/BrowserViewer";
 
 import type { NewTabPopupProps } from "./types";
 
@@ -346,6 +347,7 @@ export default function NewTabPopup({ anchorRef, onClose }: NewTabPopupProps) {
         padding: 16,
       }}
     >
+      <BrowserHideGuard />
       {/* Header */}
       <div
         className="mb-4 uppercase"
@@ -412,6 +414,7 @@ export default function NewTabPopup({ anchorRef, onClose }: NewTabPopupProps) {
         homeDir={homeDir}
         onSelectFolder={setWorkingDir}
         onFoldersChange={setRecentFolders}
+        onCreateTab={handleCreate}
       />
 
       {/* Layout Selection */}

@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { apiWriteTextFile } from "../../../lib/bridge";
 import { X, ArrowLeft, ArrowRight, ArrowSquareOut, Code, Eye, Globe } from "@phosphor-icons/react";
 import { usePanelEditorStore, type BrowserPanelTab } from "../../../stores/panelEditorStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
@@ -8,11 +8,12 @@ import { openEditorExternalWindow, notifyRemoteEditorClose } from "../../../lib/
 import { useGitStore } from "../../../stores/gitStore";
 import { useGitT } from "../../../lib/i18n/git";
 import { logger } from "../../../lib/logger";
+import { useToastStore } from "../../../stores/toastStore";
 import { MIN_WIDTH, getDisplayNames, type CtxMenuState } from "./helpers";
 import TabContextMenu from "./TabContextMenu";
 import EditorContent from "./EditorContent";
 
-export default function InlineEditorPanel() {
+export default function InlineEditorPanel({ fullWidth = false }: { fullWidth?: boolean }) {
   const tabs = usePanelEditorStore((s) => s.tabs);
   const activeIndex = usePanelEditorStore((s) => s.activeIndex);
   const setActiveIndex = usePanelEditorStore((s) => s.setActiveIndex);
@@ -34,10 +35,28 @@ export default function InlineEditorPanel() {
   const startW = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // 최초 마운트 시 부모 너비의 절반으로 초기화
+  // 최초 마운트 시 부모 너비의 절반으로 초기화 + 리사이즈 시 비율 유지
+  const ratioRef = useRef(0.5);
   useEffect(() => {
-    const parentW = containerRef.current?.parentElement?.offsetWidth;
-    if (parentW) setWidth(Math.max(MIN_WIDTH, Math.floor(parentW / 2)));
+    const parent = containerRef.current?.parentElement;
+    if (!parent) return;
+    const parentW = parent.offsetWidth;
+    if (parentW) setWidth(Math.max(MIN_WIDTH, Math.floor(parentW * ratioRef.current)));
+
+    const ro = new ResizeObserver((entries) => {
+      if (dragging.current) return;
+      for (const entry of entries) {
+        const newParentW = entry.contentRect.width;
+        if (newParentW > 0) {
+          setWidth((prev) => {
+            const newW = Math.max(MIN_WIDTH, Math.floor(newParentW * ratioRef.current));
+            return newW !== prev ? newW : prev;
+          });
+        }
+      }
+    });
+    ro.observe(parent);
+    return () => ro.disconnect();
   }, []);
 
   const tabScrollRef = useRef<HTMLDivElement>(null);
@@ -146,7 +165,9 @@ export default function InlineEditorPanel() {
       const delta = startX.current - me.clientX;
       const parentW = containerRef.current?.parentElement?.offsetWidth ?? Infinity;
       const maxW = Math.max(MIN_WIDTH, parentW - 200);
-      setWidth(Math.min(maxW, Math.max(MIN_WIDTH, startW.current + delta)));
+      const newW = Math.min(maxW, Math.max(MIN_WIDTH, startW.current + delta));
+      ratioRef.current = parentW > 0 ? newW / parentW : 0.5;
+      setWidth(newW);
     };
     const onUp = () => {
       dragging.current = false;
@@ -163,10 +184,11 @@ export default function InlineEditorPanel() {
   const handleSave = useCallback(async () => {
     if (!activeTab || activeTab.type === "diff" || activeTab.type === "browser") return;
     try {
-      await invoke("write_text_file", { path: activeTab.path, content: activeTab.content });
+      await apiWriteTextFile(activeTab.path, activeTab.content);
       markSaved(activeIndex);
     } catch (e) {
       logger.error("Failed to save file:", e);
+      useToastStore.getState().show(`저장 실패: ${e}`, "error", 4000);
     }
   }, [activeTab, activeIndex, markSaved]);
 
@@ -182,9 +204,9 @@ export default function InlineEditorPanel() {
         if (idx < 0) return;
         const tab = state.tabs[idx];
         if (tab && tab.type !== "diff" && tab.type !== "browser" && tab.isDirty) {
-          invoke("write_text_file", { path: tab.path, content: tab.content })
+          apiWriteTextFile(tab.path, tab.content)
             .then(() => usePanelEditorStore.getState().markSaved(idx))
-            .catch(logger.error);
+            .catch((e) => { logger.error(e); useToastStore.getState().show(`저장 실패: ${e}`, "error", 4000); });
         }
       }, 1000);
     },
@@ -214,11 +236,10 @@ export default function InlineEditorPanel() {
   return (
     <div
       ref={containerRef}
-      className="flex shrink-0"
+      className={fullWidth ? "flex flex-1 min-w-0" : "flex shrink-0"}
       style={{
-        width,
-        minWidth: MIN_WIDTH,
-        borderLeft: "1px solid var(--border-default)",
+        ...(fullWidth ? {} : { width, minWidth: MIN_WIDTH }),
+        borderLeft: fullWidth ? "none" : "1px solid var(--border-default)",
         background: "var(--bg-base)",
         position: "relative",
       }}

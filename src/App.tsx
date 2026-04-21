@@ -176,26 +176,28 @@ function AppInner() {
       <div className="flex-1 min-h-0 flex">
         <Sidebar />
         <div className="flex-1 min-w-0 flex min-h-0">
-          <div className="flex-1 min-w-0 h-full relative">
-            {sessions.length === 0 && (
-              <EmptyTerminalView />
-            )}
-            {sessions.map((session) => (
-              <div
-                key={session.id}
-                className="absolute inset-0"
-                style={{
-                  visibility: session.id === activeSessionId ? "visible" : "hidden",
-                }}
-              >
-                <PaneLayout node={session.rootPane} isRemote={session.isRemote} />
-              </div>
-            ))}
-          </div>
+          {(sessions.length > 0 || !editorPanelOpen) && (
+            <div className="flex-1 min-w-0 h-full relative">
+              {sessions.length === 0 && (
+                <EmptyTerminalView />
+              )}
+              {sessions.map((session) => (
+                <div
+                  key={session.id}
+                  className="absolute inset-0"
+                  style={{
+                    visibility: session.id === activeSessionId ? "visible" : "hidden",
+                  }}
+                >
+                  <PaneLayout node={session.rootPane} isRemote={session.isRemote} />
+                </div>
+              ))}
+            </div>
+          )}
           {editorPanelOpen && (
             <ErrorBoundary>
               <Suspense fallback={null}>
-                <InlineEditorPanel />
+                <InlineEditorPanel fullWidth={sessions.length === 0} />
               </Suspense>
             </ErrorBoundary>
           )}

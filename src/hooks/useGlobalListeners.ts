@@ -141,6 +141,19 @@ export function useGlobalListeners() {
     return () => { unsub(); if (timer) clearTimeout(timer); };
   }, []);
 
+  // 원격 클라이언트가 파일을 저장했을 때 호스트 에디터 갱신
+  useEffect(() => {
+    if (!isTauri()) return;
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    listen<{ path: string }>("remote-file-changed", (event) => {
+      usePanelEditorStore.getState().reloadTabByPath(event.payload.path);
+      dirCacheInvalidateAll();
+      window.dispatchEvent(new Event(EXPLORER_REFRESH_EVENT));
+    }).then((fn) => { if (cancelled) fn(); else unlisten = fn; });
+    return () => { cancelled = true; unlisten?.(); };
+  }, []);
+
   // 앱 포커스 복귀 시 패널 에디터 + 탐색기 자동 갱신
   useEffect(() => {
     let cancelled = false;

@@ -8,6 +8,7 @@ interface RecentFoldersListProps {
   homeDir: string;
   onSelectFolder: (folder: string) => void;
   onFoldersChange: (folders: string[]) => void;
+  onCreateTab?: () => void;
 }
 
 export default function RecentFoldersList({
@@ -16,6 +17,7 @@ export default function RecentFoldersList({
   homeDir,
   onSelectFolder,
   onFoldersChange,
+  onCreateTab,
 }: RecentFoldersListProps) {
   if (folders.length === 0) return null;
 
@@ -41,9 +43,11 @@ export default function RecentFoldersList({
       >
         Recent
       </label>
-      <div className="flex flex-col gap-0.5">
+      <div className="flex flex-col">
         {folders.map((folder) => {
-          const displayName = folder.split(/[\\/]/).pop() || folder;
+          const parts = folder.split(/[\\/]/);
+          const displayName = parts.pop() || folder;
+          const parentPath = parts.join("/");
           return (
             <div
               key={folder}
@@ -64,9 +68,10 @@ export default function RecentFoldersList({
             >
               <button
                 onClick={() => onSelectFolder(folder)}
-                className="flex items-center gap-2 flex-1 px-2 py-1 text-left"
+                onDoubleClick={() => onCreateTab?.()}
+                className="flex items-center gap-2 flex-1 px-2 py-0.5 text-left"
                 style={{
-                  fontSize: 'var(--fs-11)',
+                  fontSize: 'var(--fs-13)',
                   color: workingDir === folder ? "var(--text-primary)" : "var(--text-secondary)",
                   border: "none",
                   background: "transparent",
@@ -77,7 +82,14 @@ export default function RecentFoldersList({
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ flexShrink: 0, opacity: 0.6 }}>
                   <path d="M2 4h4l2 2h6v8H2z" />
                 </svg>
-                <span className="truncate">{displayName}</span>
+                <span className="truncate">
+                  {displayName}
+                  {parentPath && (
+                    <span style={{ color: "var(--text-muted)", marginLeft: "6px", fontSize: "0.85em" }}>
+                      {parentPath}
+                    </span>
+                  )}
+                </span>
               </button>
               <button
                 onClick={(e) => handleDelete(folder, e)}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { apiReadTextFile } from "../../../lib/bridge";
+import { apiReadTextFile, apiWriteTextFile, apiGitAction } from "../../../lib/bridge";
 import {
   X,
   ArrowDown,
@@ -105,8 +105,8 @@ export default function MergeEditor({
       const content = blocks.flatMap((b) => (b.kind === "text" ? b.lines : [])).join("\n");
       (async () => {
         try {
-          await invoke("write_text_file", { path: fullPath, content });
-          await invoke("git_stage_file", { path: cwd, filePath });
+          await apiWriteTextFile(fullPath, content);
+          await apiGitAction(cwd, "stage", filePath);
           useGitStore.getState().refresh(cwd);
           onResolved?.();
           onClose?.();

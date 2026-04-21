@@ -12,7 +12,8 @@
     "main",
     "settings",
     "editor",
-    "diff"
+    "diff",
+    "bw*"
   ],
   "permissions": [
     "notification:default"

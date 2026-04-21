@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useRef, lazy, Suspense } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { apiWriteTextFile } from "../../../lib/bridge";
+import { useToastStore } from "../../../stores/toastStore";
 import { listen } from "@tauri-apps/api/event";
 import { useEditorStore } from "../../../stores/editorStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
@@ -100,10 +101,11 @@ export default function EditorWindow() {
   const handleSave = useCallback(async () => {
     if (!activeTab) return;
     try {
-      await invoke("write_text_file", { path: activeTab.path, content: activeTab.content });
+      await apiWriteTextFile(activeTab.path, activeTab.content);
       markSaved(activeIndex);
     } catch (e) {
       logger.error("Failed to save file:", e);
+      useToastStore.getState().show(`저장 실패: ${e}`, "error", 4000);
     }
   }, [activeTab, activeIndex, markSaved]);
 
@@ -114,9 +116,9 @@ export default function EditorWindow() {
       autoSaveTimer.current = setTimeout(() => {
         const tab = useEditorStore.getState().tabs[activeIndex];
         if (tab && tab.isDirty) {
-          invoke("write_text_file", { path: tab.path, content: tab.content })
+          apiWriteTextFile(tab.path, tab.content)
             .then(() => useEditorStore.getState().markSaved(activeIndex))
-            .catch(logger.error);
+            .catch((e) => { logger.error(e); useToastStore.getState().show(`저장 실패: ${e}`, "error", 4000); });
         }
       }, 1000);
     },

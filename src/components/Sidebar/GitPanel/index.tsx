@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowClockwise,
+  Broom,
   Plus,
   WarningCircle,
 } from "@phosphor-icons/react";
@@ -8,12 +9,10 @@ import { useGitStore } from "../../../stores/gitStore";
 import { useShallow } from "zustand/react/shallow";
 import { useGitT } from "../../../lib/i18n/git";
 import { useWorktreeStore } from "../../../stores/worktreeStore";
-import { Broom } from "@phosphor-icons/react";
 import { safeOpenUrl } from "../../../lib/osUtils";
+import { usePanelEditorStore } from "../../../stores/panelEditorStore";
 import WorktreePanel from "../WorktreePanel";
 import GitHistoryView from "../GitHistoryView";
-import DiffViewer from "../DiffViewer";
-import MergeEditor from "../MergeEditor";
 import { useCwd } from "./shared";
 import GitBranchInfo from "./GitBranchInfo";
 import NoRepoPanel from "./NoRepoPanel";
@@ -31,7 +30,6 @@ export default function GitPanel() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [ratio1, setRatio1] = useState(0.5); // Ratio for Changes
   const [showHistory, setShowHistory] = useState(false);
-  const [diffTarget, setDiffTarget] = useState<{ path: string; staged: boolean } | null>(null);
 
   // ESC to close history popup
   useEffect(() => {
@@ -114,7 +112,9 @@ export default function GitPanel() {
           className="overflow-y-auto"
           style={{ flex: `${ratio1} 0 0`, minHeight: 0 }}
         >
-          <GitChanges cwd={cwd} onDiffOpen={(path, staged) => setDiffTarget({ path, staged })} />
+          <GitChanges cwd={cwd} onDiffOpen={(path, staged) => {
+            usePanelEditorStore.getState().openDiffTab(cwd, path, staged);
+          }} />
         </div>
 
         {/* Worktrees header = splitter handle */}
@@ -181,32 +181,6 @@ export default function GitPanel() {
         <GitHistoryView cwd={cwd} onClose={() => setShowHistory(false)} />
       )}
 
-      {/* Diff / Merge viewer overlay — lives at GitPanel level so git store refreshes don't close it */}
-      {diffTarget && (
-        <div
-          style={{ position: "fixed", inset: 0, zIndex: 999 }}
-          onMouseDown={(e) => { if (e.target === e.currentTarget) setDiffTarget(null); }}
-        >
-          {useGitStore.getState().statusMap[diffTarget.path] === "conflicted" ? (
-            <MergeEditor
-              cwd={cwd}
-              filePath={diffTarget.path}
-              onClose={() => setDiffTarget(null)}
-              onResolved={() => setDiffTarget(null)}
-            />
-          ) : (
-            <DiffViewer
-              cwd={cwd}
-              filePath={diffTarget.path}
-              staged={diffTarget.staged}
-              onClose={() => setDiffTarget(null)}
-              onHunkDiscarded={() => {
-                useGitStore.getState().refresh(cwd);
-              }}
-            />
-          )}
-        </div>
-      )}
     </div>
   );
 }
