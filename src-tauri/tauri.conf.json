@@ -29,7 +29,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: https:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:7399 ws://127.0.0.1:7399 wss://racemo-signal.fly.dev https://api.github.com"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: https:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost wss://racemo-signal.fly.dev https://api.github.com"
     }
   },
   "plugins": {

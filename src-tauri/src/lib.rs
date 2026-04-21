@@ -6,7 +6,6 @@ pub mod geminilog;
 pub mod git;
 pub mod hooklog;
 pub mod opencodelog;
-pub mod http_api;
 pub mod ipc;
 pub mod keyboard_hook;
 pub mod layout;

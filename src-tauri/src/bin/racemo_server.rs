@@ -109,10 +109,6 @@ fn main() {
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
     log::info!("Tokio runtime created, entering block_on");
     rt.block_on(async {
-        tokio::spawn(async {
-            racemo_lib::http_api::run_http_server().await;
-        });
-
         if let Err(e) = run_server(&socket_path).await {
             log::error!("Server error: {e}");
             std::process::exit(1);
