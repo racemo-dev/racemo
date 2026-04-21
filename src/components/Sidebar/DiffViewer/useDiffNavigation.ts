@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { LINE_H } from "./constants";
+import { useThemeStore } from "../../../stores/themeStore";
+import { LINE_H_BASE } from "./constants";
 
 export function useDiffNavigation(
   changeBlocks: { offset: number }[],
@@ -8,6 +9,8 @@ export function useDiffNavigation(
   onClose?: () => void,
   setDiffFontSize?: React.Dispatch<React.SetStateAction<number>>,
 ) {
+  const uiScale = useThemeStore((s) => s.fontSize / 12);
+  const LINE_H = LINE_H_BASE * uiScale;
   const [currentChangeIdx, setCurrentChangeIdx] = useState(-1);
   const changeCount = changeBlocks.length;
 
@@ -18,7 +21,7 @@ export function useDiffNavigation(
       const scrollTo = Math.max(0, changeBlocks[idx].offset - LINE_H * 3);
       if (scrollRef.current) scrollRef.current.scrollTop = scrollTo;
     },
-    [changeBlocks, scrollRef],
+    [changeBlocks, scrollRef, LINE_H],
   );
 
   const goNext = useCallback(() => {
@@ -47,8 +50,8 @@ export function useDiffNavigation(
       if ((e.ctrlKey || e.metaKey) && (e.key === "+" || e.key === "=")) { e.preventDefault(); setDiffFontSize?.((s) => Math.min(s + 1, 24)); }
       if ((e.ctrlKey || e.metaKey) && e.key === "-") { e.preventDefault(); setDiffFontSize?.((s) => Math.max(s - 1, 8)); }
     };
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
+    window.addEventListener("keydown", handleKey, true);
+    return () => window.removeEventListener("keydown", handleKey, true);
   }, [onClose, setDiffFontSize]);
 
   // Auto-navigate to first change when diff loads

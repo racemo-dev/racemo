@@ -1,5 +1,5 @@
 import type { DiffLine } from "./types";
-import { BG, FG, LINE_H, NUM_W } from "./constants";
+import { BG, FG, lineHCss, NUM_W } from "./constants";
 
 export function InlineLine({ line }: { line: DiffLine }) {
   return (
@@ -7,8 +7,8 @@ export function InlineLine({ line }: { line: DiffLine }) {
       className="flex"
       style={{
         background: BG[line.type],
-        minHeight: LINE_H,
-        height: LINE_H,
+        minHeight: lineHCss,
+        height: lineHCss,
         whiteSpace: "pre",
         minWidth: "100%",
         width: "fit-content",
@@ -24,7 +24,7 @@ export function InlineLine({ line }: { line: DiffLine }) {
           color: "var(--text-muted)",
           opacity: 0.4,
           fontSize: 'var(--fs-12)',
-          lineHeight: `${LINE_H}px`,
+          lineHeight: lineHCss,
         }}
       >
         {line.oldNum ?? ""}
@@ -40,7 +40,7 @@ export function InlineLine({ line }: { line: DiffLine }) {
           opacity: 0.4,
           userSelect: "none",
           fontSize: 'var(--fs-12)',
-          lineHeight: `${LINE_H}px`,
+          lineHeight: lineHCss,
           borderRight: "1px solid var(--border-subtle)",
         }}
       >
@@ -55,7 +55,7 @@ export function InlineLine({ line }: { line: DiffLine }) {
           color: line.type === "remove" ? "var(--accent-red)" : line.type === "add" ? "var(--status-active)" : "transparent",
           fontWeight: 700,
           userSelect: "none",
-          lineHeight: `${LINE_H}px`,
+          lineHeight: lineHCss,
           fontSize: 'var(--fs-14)',
         }}
       >
@@ -66,7 +66,7 @@ export function InlineLine({ line }: { line: DiffLine }) {
         style={{
           color: FG[line.type],
           paddingRight: 12,
-          lineHeight: `${LINE_H}px`,
+          lineHeight: lineHCss,
         }}
       >
         {line.content}

@@ -1,5 +1,5 @@
 import { ArrowCounterClockwise } from "@phosphor-icons/react";
-import { MARKER_H, NUM_W } from "./constants";
+import { markerHCss, NUM_W } from "./constants";
 
 export function ChangeMarker({
   onDiscard, discardLabel, discardTitle, confirmed, onConfirm, confirmLabel, confirmTitle,
@@ -18,8 +18,8 @@ export function ChangeMarker({
     <div
       className="flex items-center"
       style={{
-        height: MARKER_H,
-        minHeight: MARKER_H,
+        height: markerHCss,
+        minHeight: markerHCss,
         background: "color-mix(in srgb, var(--text-muted) 6%, transparent)",
         borderTop: "1px solid var(--border-subtle)",
         borderBottom: "1px solid var(--border-subtle)",

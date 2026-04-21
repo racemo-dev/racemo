@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { CaretDown, CaretUp, X } from "@phosphor-icons/react";
-import { isMac } from "../../../lib/osUtils";
+import { CaretDown, CaretUp } from "@phosphor-icons/react";
 import { useGitT } from "../../../lib/i18n/git";
 
 import { SCROLLBAR_W, MARKER_TRACK_W } from "./constants";
@@ -31,8 +30,12 @@ export default function DiffViewer({
   headerExtra?: React.ReactNode;
 }) {
   const t = useGitT();
-  const [diffFontSize, setDiffFontSize] = useState(14);
+  const [diffFontSize, setDiffFontSize] = useState(12);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Auto-focus so keyboard shortcuts work immediately
+  useEffect(() => { rootRef.current?.focus(); }, []);
 
   const { bounds, isMaximized, toggleMaximize, startResize } = useResizablePanel();
 
@@ -78,6 +81,8 @@ export default function DiffViewer({
 
   return (
     <div
+      ref={rootRef}
+      tabIndex={-1}
       style={standalone ? {
         position: "relative",
         width: "100%",
@@ -118,7 +123,7 @@ export default function DiffViewer({
 
       {/* ── Header ── */}
       <div
-        className={`flex items-center shrink-0 ${standalone ? "pl-3" : "px-3"} gap-2`}
+        className="flex items-center shrink-0 pl-2 pr-3 gap-2"
         style={{
           height: "calc(32px * var(--ui-scale))",
           fontSize: 'var(--fs-13)',
@@ -131,7 +136,6 @@ export default function DiffViewer({
         data-tauri-drag-region
         onDoubleClick={standalone ? undefined : toggleMaximize}
       >
-        {standalone && isMac() && <div className="shrink-0" style={{ width: 74 }} />}
         {/* Left content — shrinkable so the flex-1 drag spacer always gets space */}
         <div className="flex items-center gap-2 shrink min-w-0 overflow-hidden">
         {dirPath && (
@@ -208,24 +212,8 @@ export default function DiffViewer({
             </span>
           </span>
         )}
+        {headerExtra}
         </div>{/* end left content */}
-        {/* Drag spacer — always gets remaining space since left content can shrink */}
-        <div className="flex-1 h-full" data-tauri-drag-region />
-        <span className="flex items-center h-full gap-1" style={{ flexShrink: 0 }}>
-          {headerExtra}
-          {onClose && (
-            <button
-              onClick={onClose}
-              onMouseDown={(e) => e.stopPropagation()}
-              className="cursor-pointer"
-              style={{ color: "var(--text-muted)", lineHeight: 0 }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--text-primary)"; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--text-muted)"; }}
-            >
-              <X size={14} style={{ width: 'calc(14px * var(--ui-scale))', height: 'calc(14px * var(--ui-scale))' }} />
-            </button>
-          )}
-        </span>
       </div>
 
       {/* ── Status ── */}
@@ -246,19 +234,21 @@ export default function DiffViewer({
               overflowY: "scroll",
               overflowX: "auto",
               fontFamily: "'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace",
-              fontSize: diffFontSize,
+              fontSize: `calc(${diffFontSize}px * var(--ui-scale))`,
             }}
           >
-            <DiffBody
-              items={items}
-              syntheticDiscardedIndices={syntheticDiscardedIndices}
-              collapsedHunks={collapsedHunks}
-              onDiscardHunk={handleDiscardHunk}
-              onConfirmHunk={confirmHunk}
-              onExpandHunk={expandHunk}
-              onUndoDiscard={handleUndoDiscard}
-              t={t}
-            />
+            <div style={{ display: "inline-block", minWidth: "100%" }}>
+              <DiffBody
+                items={items}
+                syntheticDiscardedIndices={syntheticDiscardedIndices}
+                collapsedHunks={collapsedHunks}
+                onDiscardHunk={handleDiscardHunk}
+                onConfirmHunk={confirmHunk}
+                onExpandHunk={expandHunk}
+                onUndoDiscard={handleUndoDiscard}
+                t={t}
+              />
+            </div>
           </div>
           {/* ── Change map track (right edge) ── */}
           <div

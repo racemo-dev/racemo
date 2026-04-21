@@ -2,8 +2,12 @@ import type { DiffLine } from "./types";
 
 // ── Constants ────────────────────────────────────────────────
 
-export const LINE_H = 20;
-export const MARKER_H = 24;
+export const LINE_H_BASE = 20;
+export const MARKER_H_BASE = 24;
+
+/** CSS value that scales with --ui-scale */
+export const lineHCss = `calc(${LINE_H_BASE}px * var(--ui-scale))`;
+export const markerHCss = `calc(${MARKER_H_BASE}px * var(--ui-scale))`;
 export const NUM_W = 40;
 export const SCROLLBAR_W = 14;
 export const MARKER_TRACK_W = 6;

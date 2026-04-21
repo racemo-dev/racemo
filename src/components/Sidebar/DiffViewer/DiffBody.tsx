@@ -1,7 +1,7 @@
 import React from "react";
 import type { TranslationKey } from "../../../lib/i18n/git";
 import type { DiffLine, RenderItem } from "./types";
-import { LINE_H, NUM_W } from "./constants";
+import { lineHCss, NUM_W } from "./constants";
 import { InlineLine } from "./InlineLine";
 import { ChangeMarker } from "./ChangeMarker";
 
@@ -106,30 +106,30 @@ function CollapsedAddLine({
       className="group flex relative"
       style={{
         background: hunkDiscarded ? "color-mix(in srgb, var(--accent-yellow) 8%, transparent)" : "color-mix(in srgb, var(--status-active) 8%, transparent)",
-        minHeight: LINE_H,
-        height: LINE_H,
+        minHeight: lineHCss,
+        height: lineHCss,
         whiteSpace: "pre",
         minWidth: "100%",
         width: "fit-content",
         borderLeft: `2px solid ${hunkDiscarded ? "color-mix(in srgb, var(--accent-yellow) 35%, transparent)" : "color-mix(in srgb, var(--status-active) 35%, transparent)"}`,
       }}
     >
-      <span style={{ width: NUM_W, minWidth: NUM_W, textAlign: "right", paddingRight: 4, color: "var(--text-muted)", opacity: 0.3, fontSize: 'var(--fs-12)', lineHeight: `${LINE_H}px` }}>
+      <span style={{ width: NUM_W, minWidth: NUM_W, textAlign: "right", paddingRight: 4, color: "var(--text-muted)", opacity: 0.3, fontSize: 'var(--fs-12)', lineHeight: lineHCss }}>
         {line.oldNum ?? ""}
       </span>
-      <span style={{ width: NUM_W, minWidth: NUM_W, textAlign: "right", paddingRight: 6, color: "var(--text-muted)", opacity: 0.3, userSelect: "none", fontSize: 'var(--fs-12)', lineHeight: `${LINE_H}px`, borderRight: "1px solid var(--border-subtle)" }}>
+      <span style={{ width: NUM_W, minWidth: NUM_W, textAlign: "right", paddingRight: 6, color: "var(--text-muted)", opacity: 0.3, userSelect: "none", fontSize: 'var(--fs-12)', lineHeight: lineHCss, borderRight: "1px solid var(--border-subtle)" }}>
         {line.newNum ?? ""}
       </span>
-      <span style={{ width: 16, minWidth: 16, textAlign: "center", color: hunkDiscarded ? "var(--text-muted)" : "var(--status-active)", fontWeight: 700, userSelect: "none", lineHeight: `${LINE_H}px`, fontSize: 'var(--fs-14)', textDecoration: hunkDiscarded ? "line-through" : undefined }}>
+      <span style={{ width: 16, minWidth: 16, textAlign: "center", color: hunkDiscarded ? "var(--text-muted)" : "var(--status-active)", fontWeight: 700, userSelect: "none", lineHeight: lineHCss, fontSize: 'var(--fs-14)', textDecoration: hunkDiscarded ? "line-through" : undefined }}>
         {hunkDiscarded ? "\u2212" : "+"}
       </span>
-      <span style={{ color: hunkDiscarded ? "var(--text-muted)" : "var(--status-active)", paddingRight: 12, lineHeight: `${LINE_H}px`, textDecoration: hunkDiscarded ? "line-through" : undefined, opacity: hunkDiscarded ? 0.5 : 1 }}>
+      <span style={{ color: hunkDiscarded ? "var(--text-muted)" : "var(--status-active)", paddingRight: 12, lineHeight: lineHCss, textDecoration: hunkDiscarded ? "line-through" : undefined, opacity: hunkDiscarded ? 0.5 : 1 }}>
         {line.content}
       </span>
       {isFirst && (
         <span
           className="absolute right-2 top-0 flex items-center"
-          style={{ height: LINE_H }}
+          style={{ height: lineHCss }}
         >
           <button
             onClick={(e) => {

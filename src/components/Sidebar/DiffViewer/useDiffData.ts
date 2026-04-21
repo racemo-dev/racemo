@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { apiGitDiffFile } from "../../../lib/bridge";
 import { logger } from "../../../lib/logger";
 
+import { useThemeStore } from "../../../stores/themeStore";
 import type { RenderItem, StructureHunk } from "./types";
-import { LINE_H, MARKER_H } from "./constants";
+import { LINE_H_BASE, MARKER_H_BASE } from "./constants";
 import { parseUnifiedLines, parseStructureHunks, findStructHunk } from "./parsing";
 
 export function useDiffData(cwd: string, filePath: string, staged: boolean, onHunkDiscarded?: () => void) {
+  const uiScale = useThemeStore((s) => s.fontSize / 12);
+  const LINE_H = LINE_H_BASE * uiScale;
+  const MARKER_H = MARKER_H_BASE * uiScale;
   const [displayDiff, setDisplayDiff] = useState<string | null>(null);
   const [structHunks, setStructHunks] = useState<StructureHunk[]>([]);
   const [error, setError] = useState("");
@@ -98,8 +103,8 @@ export function useDiffData(cwd: string, filePath: string, staged: boolean, onHu
     setIsLoading(true);
     setError("");
     Promise.all([
-      invoke<string>("git_diff_file", { path: cwd, filePath, staged, contextLines: 99999 }),
-      invoke<string>("git_diff_file", { path: cwd, filePath, staged }),
+      apiGitDiffFile(cwd, filePath, staged, 99999),
+      apiGitDiffFile(cwd, filePath, staged),
     ])
       .then(([display, structure]) => {
         setDisplayDiff(display);
@@ -214,7 +219,7 @@ export function useDiffData(cwd: string, filePath: string, staged: boolean, onHu
       }
     }
     return blocks;
-  }, [items]);
+  }, [items, LINE_H, MARKER_H]);
 
   // Change map: positions of changed lines as fraction of total content height
   const changeMapMarkers = useMemo(() => {
@@ -229,7 +234,7 @@ export function useDiffData(cwd: string, filePath: string, staged: boolean, onHu
       px += item.kind === "changeMarker" ? MARKER_H : LINE_H;
     }
     return markers;
-  }, [items]);
+  }, [items, LINE_H, MARKER_H]);
 
   const handleDiscardHunk = async (hunkIndex: number) => {
     try {
