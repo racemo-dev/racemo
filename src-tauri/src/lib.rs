@@ -16,7 +16,16 @@ pub mod remote;
 pub mod session;
 pub mod updater;
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
+/// Global AppHandle for emitting events from non-Tauri contexts (e.g., remote API handlers).
+static GLOBAL_APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
+
+pub fn emit_global(event: &str, payload: impl serde::Serialize + Clone) {
+    if let Some(handle) = GLOBAL_APP_HANDLE.get() {
+        let _ = handle.emit(event, payload);
+    }
+}
 
 #[cfg(target_os = "macos")]
 use tauri::menu::{MenuBuilder, MenuItem, SubmenuBuilder};
@@ -294,6 +303,7 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            let _ = GLOBAL_APP_HANDLE.set(app.handle().clone());
             // Windows and Linux: disable native decorations (use custom window controls in frontend)
             #[cfg(any(target_os = "windows", target_os = "linux"))]
             {

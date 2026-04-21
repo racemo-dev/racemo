@@ -1920,7 +1920,8 @@ fn handle_api_request(req: &proto::ApiRequest) -> Vec<u8> {
                 validate_remote_path(path)?;
                 let file = params["filePath"].as_str().unwrap_or("");
                 let staged = params["staged"].as_bool().unwrap_or(false);
-                let diff = crate::git::diff_file(path, file, staged, Some(3))?;
+                let context_lines = params["contextLines"].as_u64().map(|v| v as u32);
+                let diff = crate::git::diff_file(path, file, staged, context_lines)?;
                 Ok(serde_json::json!({ "diff": diff }))
             }
             "list_directory_filtered" => {
@@ -2001,6 +2002,7 @@ fn handle_api_request(req: &proto::ApiRequest) -> Vec<u8> {
                 }
                 let canonical = validate_remote_path(path)?;
                 std::fs::write(&canonical, content).map_err(|e| e.to_string())?;
+                crate::emit_global("remote-file-changed", serde_json::json!({ "path": canonical.to_string_lossy() }));
                 Ok(serde_json::json!({ "ok": true }))
             }
             _ => Err("Unhandled API method".to_string()),
@@ -2009,7 +2011,10 @@ fn handle_api_request(req: &proto::ApiRequest) -> Vec<u8> {
 
     let (result_json, error) = match result {
         Ok(v) => (serde_json::to_string(&v).unwrap_or_default(), String::new()),
-        Err(e) => (String::new(), e),
+        Err(e) => {
+            log::warn!("[api] {} failed: {e}", req.method);
+            (String::new(), e)
+        }
     };
 
     let response = proto::RemoteMessage {

@@ -129,19 +129,24 @@ impl SignalingClient {
     }
 
     async fn connect_raw(full_url: &str) -> Result<Self, String> {
+        // Build request with Origin header for server-side origin validation
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let mut request = full_url.into_client_request()
+            .map_err(|e| format!("Failed to build WS request: {e}"))?;
+        request.headers_mut().insert("Origin", "tauri://localhost".parse().unwrap());
+
         let (ws_stream, _) = tokio::time::timeout(
             std::time::Duration::from_secs(3),
-            tokio_tungstenite::connect_async(full_url)
+            tokio_tungstenite::connect_async(request)
         ).await
             .map_err(|_| "Signaling server connection timed out (3s)".to_string())?
             .map_err(|e| {
                 let msg = e.to_string();
                 if msg.contains("403") {
-                    // 서버에서 보내는 플랜별 제한 메시지를 추출 (HTTP body)
                     if let Some(body) = extract_http_body(&msg) {
                         body
                     } else {
-                        "연결 제한 초과. Pro로 업그레이드하면 최대 10개까지 가능합니다.".to_string()
+                        "서버 접근이 거부되었습니다 (403 Forbidden)".to_string()
                     }
                 } else {
                     format!("WebSocket connect failed: {e}")

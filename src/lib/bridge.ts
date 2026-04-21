@@ -145,6 +145,15 @@ export async function apiGitAction(path: string, action: string, filePath?: stri
   }
 }
 
+export async function apiGitDiffFile(path: string, filePath: string, staged: boolean, contextLines?: number): Promise<string> {
+  if (isTauri() && isRemoteSession()) {
+    const data = await remoteApiCall<{ diff: string }>("git_diff", { path, filePath, staged, contextLines });
+    return data.diff;
+  }
+  if (isTauri()) return invoke<string>("git_diff_file", { path, filePath, staged, contextLines });
+  return httpGet<string>("/git/diff", { path, filePath, staged: String(staged), contextLines: String(contextLines ?? 3) });
+}
+
 export async function apiGitCommitLog(path: string, count: number, all = false): Promise<import("../types/git").GitCommitEntry[]> {
   if (isTauri() && isRemoteSession()) {
     return remoteApiCall("git_log", { path, count, all });
