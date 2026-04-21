@@ -5,14 +5,13 @@
 <h1 align="center">Racemo</h1>
 
 <p align="center">
-  <strong>Made this because Windows doesn't have a decent multi-session terminal.</strong><br/>
-  Sessions stay alive across app restarts — close, reopen, pick up where you left off.<br/>
-  Share a session across your devices in one click.<br/>
-  Windows / macOS / Linux.
+  <strong>Pick up your terminal on another device — exactly where you left it.</strong><br/>
+  Claude, Codex, Gemini, and OpenCode sessions travel with you.<br/>
+  Windows · macOS · Linux — terminal data stays peer-to-peer.
 </p>
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/7bd33557-b863-4796-9797-dc7160ab2cfb" alt="Racemo demo" />
+  <img src="assets/demo.gif" alt="Racemo demo" />
 </p>
 
 <p align="center">
@@ -27,6 +26,27 @@
 ---
 
 ## Features
+
+### Remote
+- Share terminal across your devices via GitHub account (WebRTC P2P)
+- One-click share from the title bar — no port forwarding, no SSH keys
+- Signaling relay hosted by Racemo; all terminal data is peer-to-peer
+- Persistent sessions travel with you — open the same session from any device
+
+<p align="center">
+  <img src="assets/remote.png" alt="Remote access across devices" width="80%" />
+</p>
+
+> **Note:** Remote features use a hosted signaling relay (`racemo-signal.fly.dev`) for WebRTC connection setup. The signaling server is a closed-source hosted service and is not part of this repository. Terminal data after the initial handshake is fully peer-to-peer. Remote hosting assumes the peer is trusted; see [docs/open-core.md](docs/open-core.md), [docs/PROTOCOL.md](docs/PROTOCOL.md), and [SECURITY.md](SECURITY.md).
+
+### AI
+- Commit message generator — drafts a Conventional Commits message from your staged diff
+- One-click AI commit — writes the message and commits in a single action
+- Unified session history — browse Claude, Codex, Gemini, and OpenCode session logs side-by-side in a single timeline view
+
+<p align="center">
+  <img src="assets/ai.png" alt="Unified AI session history and commit generator" width="80%" />
+</p>
 
 ### Terminal
 - Multi-pane layout with horizontal/vertical splitting and drag-to-resize
@@ -48,28 +68,6 @@
 <p align="center">
   <img src="assets/worktree.png" alt="Git worktree and diff viewer" width="49%" />
   <img src="assets/markdown.png" alt="Markdown viewer" width="49%" />
-</p>
-
-### Remote
-- Share terminal across your devices via GitHub account (WebRTC P2P)
-- One-click share from the title bar — no port forwarding, no SSH keys
-- Signaling relay hosted by Racemo; all terminal data is peer-to-peer
-- Persistent sessions travel with you — open the same session from any device
-
-<p align="center">
-  <img src="assets/remote.png" alt="Remote access across devices" width="80%" />
-</p>
-
-> **Note:** Remote features use a hosted signaling relay (`racemo-signal.fly.dev`) for WebRTC connection setup. The signaling server is a closed-source hosted service and is not part of this repository. Terminal data after the initial handshake is fully peer-to-peer. Remote hosting assumes the peer is trusted; see [docs/open-core.md](docs/open-core.md), [docs/PROTOCOL.md](docs/PROTOCOL.md), and [SECURITY.md](SECURITY.md).
-
-### AI
-- Error explainer — when a command fails, get the root cause and a suggested fix inline
-- Commit message generator — drafts a Conventional Commits message from your staged diff
-- One-click AI commit — writes the message and commits in a single action
-- Unified session logs — aggregates Claude, Codex, Gemini, OpenCode sessions into one searchable timeline
-
-<p align="center">
-  <img src="assets/ai.png" alt="AI error explainer and commit generator" width="80%" />
 </p>
 
 ### Privacy & Customization
@@ -103,13 +101,14 @@ All platforms include automatic updates.
 
 ## Comparison
 
-| | tmux / screen | iTerm2 / Windows Terminal | Warp | **Racemo** |
+| | tmux / screen | iTerm2 / Windows Terminal | cmux | **Racemo** |
 |---|---|---|---|---|
-| Persistent sessions | CLI only | No | No | Yes — daemon keeps PTY alive |
-| Cross-platform | Linux / macOS | Single OS | Windows / macOS / Linux | Windows / macOS / Linux |
-| GUI pane management | Keyboard only | Basic | Yes | Yes |
-| Built-in editor & git | No | No | Partial | Yes |
-| Remote access | SSH required | No | Cloud (account) | P2P WebRTC via hosted relay |
+| Persistent sessions | CLI only | No | Workspace-based | Yes — daemon keeps PTY alive |
+| Cross-platform | Linux / macOS | Single OS | macOS only | Windows / macOS / Linux |
+| GUI pane management | Keyboard only | Basic | Yes (vertical + horizontal) | Yes |
+| Built-in editor & git | No | No | No | Yes |
+| AI session integration | No | No | Agent-native (Claude Code) | Unified log view (Claude / Codex / Gemini / OpenCode) |
+| Remote access | SSH required | No | SSH | P2P WebRTC via hosted relay |
 
 ## Keyboard Shortcuts
 
