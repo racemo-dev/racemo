@@ -636,7 +636,7 @@ async fn try_refresh(app: &AppHandle, refresh_token: &str) -> Result<AuthUser, A
         .await
         .map_err(|e| AuthError::Connection(e.to_string()))?;
 
-    if res.status() == axum::http::StatusCode::UNAUTHORIZED {
+    if res.status() == reqwest::StatusCode::UNAUTHORIZED {
         return Err(AuthError::InvalidToken("Refresh token expired or invalid".to_string()));
     }
 
