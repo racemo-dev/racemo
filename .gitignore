@@ -61,3 +61,8 @@ test-results/
 .claude/settings.local.json
 node-racemo/.claude/settings.local.json
 .racemo/
+
+# Local tooling artifacts (not part of the project)
+graphify-out/
+.bkit/
+**/.bkit/

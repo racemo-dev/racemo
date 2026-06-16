@@ -53,7 +53,7 @@
 - Multiple tabs with quick switching (`Alt+1~9`)
 - Multi-pane broadcast — type once, send keystrokes to every pane at the same time (`Cmd+B`)
 - Command palette (`Cmd+K`) and history search (`Cmd+R`)
-- Shell autocomplete and command snippets with `{{variable}}` placeholders — save `ssh {{user}}@{{host}}` once, reuse forever
+- Shell autocomplete and command snippets with `{{variable}}` placeholders — save `ssh {{user}}@{{host}}` once and recall it with a shortcut
 
 <p align="center">
   <img src="assets/editor.png" alt="Terminal with code editor" width="80%" />
@@ -101,14 +101,13 @@ All platforms include automatic updates.
 
 ## Comparison
 
-| | tmux / screen | iTerm2 / Windows Terminal | cmux | **Racemo** |
-|---|---|---|---|---|
-| Persistent sessions | CLI only | No | Workspace-based | Yes — daemon keeps PTY alive |
-| Cross-platform | Linux / macOS | Single OS | macOS only | Windows / macOS / Linux |
-| GUI pane management | Keyboard only | Basic | Yes (vertical + horizontal) | Yes |
-| Built-in editor & git | No | No | No | Yes |
-| AI session integration | No | No | Agent-native (Claude Code) | Unified log view (Claude / Codex / Gemini / OpenCode) |
-| Remote access | SSH required | No | SSH | P2P WebRTC via hosted relay |
+| | tmux / screen | iTerm2 / Windows Terminal | **Racemo** |
+|---|---|---|---|
+| Persistent sessions | Yes | No | Yes |
+| Cross-platform | Linux / macOS | Single OS | Windows / macOS / Linux |
+| GUI pane management | Keyboard only | Basic | Yes |
+| Built-in editor & git | No | No | Code editor + git staging / diff / worktree |
+| Self-serve remote access | No | No | Yes — P2P WebRTC via hosted relay |
 
 ## Keyboard Shortcuts
 
@@ -134,20 +133,9 @@ All platforms include automatic updates.
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────┐
-│              React + xterm.js               │  Frontend (TypeScript)
-├─────────────────────────────────────────────┤
-│              Tauri IPC Bridge               │  Commands & Events
-├──────────────────────┬──────────────────────┤
-│    Tauri App (Rust)  │  racemo-server (Rust)│  Two binaries
-│    GUI + Commands    │  PTY + Sessions      │
-├──────────────────────┴──────────────────────┤
-│     Unix Socket / Named Pipe (MsgPack)      │  IPC Protocol
-├─────────────────────────────────────────────┤
-│          OS PTY (posix / ConPTY)            │  Platform Layer
-└─────────────────────────────────────────────┘
-```
+<p align="center">
+  <img src="assets/architecture.svg" alt="Racemo architecture: React frontend → Tauri IPC bridge → Tauri App and racemo-server daemon → Unix Socket / Named Pipe (MessagePack) → OS PTY" width="80%" />
+</p>
 
 More detail:
 - [docs/architecture.md](docs/architecture.md) - client architecture and runtime boundaries

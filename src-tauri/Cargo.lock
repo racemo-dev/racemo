@@ -2680,6 +2680,8 @@ dependencies = [
  "num-traits",
  "png 0.18.1",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -4595,6 +4597,7 @@ name = "racemo"
 version = "0.0.8"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "bytes",
  "chacha20poly1305",
  "chrono",

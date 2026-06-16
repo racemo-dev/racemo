@@ -1,6 +1,6 @@
 [package]
 name = "racemo"
-version = "0.0.8"
+version = "0.0.9"
 description = "GUI Terminal Multiplexer"
 authors = ["junghoyu"]
 license = "Apache-2.0"
@@ -45,7 +45,7 @@ tauri-plugin-notification = "2.3.3"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-dialog = "2"
 dirs = "5"
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 prost = "0.13"
 reqwest = { version = "0.12", features = ["json", "stream"] }
 tauri-plugin-store = "2"
@@ -64,6 +64,7 @@ webrtc = "0.11"
 bytes = "1"
 notify = "7"
 notify-debouncer-mini = "0.5"
+base64 = "0.22"
 
 [dev-dependencies]
 tempfile = "3"

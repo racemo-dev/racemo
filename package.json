@@ -1,7 +1,7 @@
 {
   "name": "racemo",
   "private": true,
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "Modern GUI terminal multiplexer built with Tauri",
   "keywords": [
     "terminal",
@@ -72,12 +72,13 @@
     "@milkdown/react": "^7.19.0",
     "@milkdown/utils": "^7.19.0",
     "@phosphor-icons/react": "^2.1.10",
-    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/api": "~2.10.1",
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "@tauri-apps/plugin-dialog": "^2.7.0",
     "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-shell": "^2.3.5",
+    "@tauri-apps/plugin-store": "2.4.2",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-search": "^0.16.0",
     "@xterm/addon-unicode11": "^0.9.0",
