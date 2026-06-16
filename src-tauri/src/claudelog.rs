@@ -1,3 +1,4 @@
+use crate::ailog::shared::truncate_str;
 use serde::Serialize;
 
 /// Entry from ~/.claude/history.jsonl
@@ -208,11 +209,6 @@ fn find_project_dir_case_insensitive(encoded: &str) -> Option<std::path::PathBuf
     None
 }
 
-fn truncate_str(s: &str, max_chars: usize) -> String {
-    let mut chars = s.chars();
-    let collected: String = chars.by_ref().take(max_chars).collect();
-    if chars.next().is_some() { format!("{}…", collected) } else { collected }
-}
 
 fn extract_tool_detail(name: &str, input: Option<&serde_json::Value>) -> String {
     let Some(input) = input else { return String::new() };

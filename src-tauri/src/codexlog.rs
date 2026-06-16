@@ -1,3 +1,4 @@
+use crate::ailog::shared::truncate_str;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
@@ -273,15 +274,6 @@ pub fn read_codex_session(session_id: &str) -> (Option<CodexSessionMeta>, Vec<Co
     parse_session(&text)
 }
 
-fn truncate_str(s: &str, max_chars: usize) -> String {
-    let mut chars = s.chars();
-    let collected: String = chars.by_ref().take(max_chars).collect();
-    if chars.next().is_some() {
-        format!("{}…", collected)
-    } else {
-        collected
-    }
-}
 
 fn parse_session(text: &str) -> (Option<CodexSessionMeta>, Vec<CodexSessionMessage>) {
     let mut meta: Option<CodexSessionMeta> = None;

@@ -1,3 +1,4 @@
+use crate::ailog::shared::truncate_str;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
@@ -157,15 +158,6 @@ fn extract_first_user_message(path: &Path) -> Option<String> {
     None
 }
 
-fn truncate_str(s: &str, max_chars: usize) -> String {
-    let mut chars = s.chars();
-    let collected: String = chars.by_ref().take(max_chars).collect();
-    if chars.next().is_some() {
-        format!("{}…", collected)
-    } else {
-        collected
-    }
-}
 
 /// Read a Gemini CLI chat session JSON file and extract messages.
 pub fn read_gemini_session(
@@ -414,17 +406,6 @@ fn merge_consecutive_assistant(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn truncate_str_short() {
-        assert_eq!(truncate_str("hello", 10), "hello");
-    }
-
-    #[test]
-    fn truncate_str_long() {
-        let result = truncate_str("hello world", 5);
-        assert_eq!(result, "hello…");
-    }
 
     #[test]
     fn parse_session_gemini_format() {

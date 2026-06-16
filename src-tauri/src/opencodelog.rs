@@ -1,3 +1,4 @@
+use crate::ailog::shared::truncate_str;
 use rusqlite::Connection;
 use serde::Serialize;
 use std::path::PathBuf;
@@ -118,15 +119,6 @@ pub fn read_opencode_history(max: usize) -> Vec<OpenCodeHistoryEntry> {
     entries
 }
 
-fn truncate_str(s: &str, max_chars: usize) -> String {
-    let mut chars = s.chars();
-    let collected: String = chars.by_ref().take(max_chars).collect();
-    if chars.next().is_some() {
-        format!("{}…", collected)
-    } else {
-        collected
-    }
-}
 
 /// Read messages + parts for a given session from the SQLite DB.
 pub fn read_opencode_session(session_id: &str) -> Vec<OpenCodeSessionMessage> {
@@ -382,17 +374,6 @@ fn merge_consecutive_assistant(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn truncate_str_short() {
-        assert_eq!(truncate_str("hello", 10), "hello");
-    }
-
-    #[test]
-    fn truncate_str_long() {
-        let result = truncate_str("hello world", 5);
-        assert_eq!(result, "hello…");
-    }
 
     #[test]
     fn extract_tool_detail_read() {
