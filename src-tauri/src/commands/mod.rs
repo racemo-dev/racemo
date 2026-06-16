@@ -4,11 +4,13 @@ pub mod geminilog;
 pub mod history;
 pub mod hooklog;
 pub mod opencodelog;
+pub mod prompts;
 pub mod remote;
 pub mod session;
 pub mod util;
 pub mod git;
 pub mod streaming;
+pub mod notify;
 
 pub use claudelog::*;
 pub use codexlog::*;
@@ -16,10 +18,12 @@ pub use geminilog::*;
 pub use history::*;
 pub use hooklog::*;
 pub use opencodelog::*;
+pub use prompts::*;
 pub use remote::*;
 pub use session::*;
 pub use util::*;
 pub use git::*;
+pub use notify::*;
 
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;

@@ -5,72 +5,21 @@ import { useSettingsStore } from "../stores/settingsStore";
 import { useBroadcastStore } from "../stores/broadcastStore";
 import { useSidebarStore } from "../stores/sidebarStore";
 import { openSettingsWindow } from "./settingsWindow";
-import { useSnippetStore } from "../stores/snippetStore";
 import { useCommandPaletteStore } from "../stores/commandPaletteStore";
 import { useRemoteStore } from "../stores/remoteStore";
 import { useAuthStore } from "../stores/authStore";
-import { applyThemeToAll, applyFontSizeToAll } from "./terminalRegistry";
-import { applyThemeToAllRemote, applyFontSizeToAllRemote } from "./remoteTerminalRegistry";
-import { firstLeafId, findPtyId, collectPtyIds } from "./paneTreeUtils";
+import { applyThemeToAll, applyFontSizeToAll, recoverAllTerminals } from "./terminalRegistry";
+import { applyThemeToAllRemote, applyFontSizeToAllRemote, recoverAllRemoteTerminals } from "./remoteTerminalRegistry";
+import { useToastStore } from "../stores/toastStore";
+import { firstLeafId, collectPtyIds } from "./paneTreeUtils";
 import { getDefaultTerminalSize } from "./terminalUtils";
 import { getModLabel } from "./osUtils";
 import type { CommandItem } from "../types/commandPalette";
 import type { Session } from "../types/session";
 import { logger } from "./logger";
 
-/** Extract {{variable}} names from a command string. */
-export function extractVariables(command: string): string[] {
-  const matches = command.match(/\{\{([^}]+)\}\}/g);
-  if (!matches) return [];
-  return [...new Set(matches.map((m) => m.slice(2, -2).trim()))];
-}
-
-/** Replace {{variable}} placeholders with values. */
-export function substituteVariables(
-  command: string,
-  values: Record<string, string>,
-): string {
-  return command.replace(/\{\{([^}]+)\}\}/g, (_, name) => values[name.trim()] ?? "");
-}
-
-/** Execute a snippet: check for variables, then write to PTY. */
-export function executeSnippet(command: string): void {
-  const vars = extractVariables(command);
-  if (vars.length > 0) {
-    useCommandPaletteStore
-      .getState()
-      .promptVariables(command, vars.map((name) => ({ name, value: "" })));
-    return;
-  }
-  writeCommandToPty(command);
-}
-
-/** Write a command string to the currently focused PTY. */
-export function writeCommandToPty(command: string): void {
-  const { sessions, activeSessionId, focusedPaneId } = useSessionStore.getState();
-  const session = sessions.find((s) => s.id === activeSessionId);
-  if (!session || !focusedPaneId) return;
-
-  const ptyId = findPtyId(session.rootPane, focusedPaneId);
-  if (!ptyId) return;
-
-  const encoder = new TextEncoder();
-  const bytes = Array.from(encoder.encode(command));
-  invoke("write_to_pty", { paneId: ptyId, data: bytes }).catch(logger.error);
-  useCommandPaletteStore.getState().close();
-}
-
-/** Get all available commands (internal + snippets). */
 export function getAllCommands(): CommandItem[] {
-  const internal = getInternalCommands();
-  const snippets = useSnippetStore.getState().snippets.map((s) => ({
-    id: `snippet-${s.id}`,
-    label: s.name,
-    category: "snippet" as const,
-    keywords: s.command,
-    action: () => executeSnippet(s.command),
-  }));
-  return [...snippets, ...internal];
+  return getInternalCommands();
 }
 
 function getInternalCommands(): CommandItem[] {
@@ -169,6 +118,26 @@ function getInternalCommands(): CommandItem[] {
       useThemeStore.getState().resetFontSize();
       applyFontSizeToAll();
       applyFontSizeToAllRemote();
+      useCommandPaletteStore.getState().close();
+    },
+  });
+
+  // WebGL glyph atlas recovery — dispose & recreate WebglAddon. Use when
+  // glyphs render as wrong/missing glyphs after long sessions, only fixed by
+  // window resize. Same effect as resize, no keyboard shortcut needed.
+  items.push({
+    id: "terminal-recover-renderer",
+    label: "Terminal: Recover Renderer (WebGL glyph cache)",
+    category: "internal",
+    keywords: "webgl glyph atlas refresh corrupt 깨짐 한글 글리프 복구 재초기화",
+    action: () => {
+      const local = recoverAllTerminals();
+      const remote = recoverAllRemoteTerminals();
+      useToastStore.getState().show(
+        `터미널 재초기화 — 로컬 ${local}, 원격 ${remote}`,
+        "info",
+        1800,
+      );
       useCommandPaletteStore.getState().close();
     },
   });
