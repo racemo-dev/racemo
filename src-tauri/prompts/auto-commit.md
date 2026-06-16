@@ -1,7 +1,7 @@
 You are in a git repository. Analyze the current changes and split them into logical commits by feature/purpose.
 
 Steps:
-1. Run "git diff" and "git diff --staged" and "git status --porcelain" to see all changes
+1. Run "git diff" and "git status --porcelain" to see all changes. For staged diff, run: "git diff --staged 2>/dev/null || git diff --cached $(git hash-object -t tree /dev/null)"
 2. Group related file changes together by feature or purpose
 3. Output commit plan
 

@@ -1,7 +1,7 @@
 You are in a git repository. Generate a commit message for the current changes.
 
 Steps:
-1. Run "git diff" and "git diff --staged" to see the changes
+1. Run "git diff" to see the changes. For staged diff, run: "git diff --staged 2>/dev/null || git diff --cached $(git hash-object -t tree /dev/null)"
 2. Generate a commit message
 
 Format rules:
