@@ -5,6 +5,8 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { writeText, readText } from "@tauri-apps/plugin-clipboard-manager";
 import { useThemeStore } from "../stores/themeStore";
 import { useSettingsStore } from "../stores/settingsStore";
+import { installAtlasMergeWorkaround, invalidateAtlasTextures, scrubAtlasAfterClear } from "./webglAtlasFix";
+import { logger } from "./logger";
 
 export interface RemoteTerminalEntry {
   terminal: Terminal;
@@ -124,19 +126,19 @@ export function getOrCreateRemoteTerminal(remotePaneId: string): RemoteTerminalE
     if (isCtrlShift && e.code === "KeyC") {
       e.preventDefault();
       const selection = terminal.getSelection();
-      if (selection) writeText(selection).catch(console.error);
+      if (selection) writeText(selection).catch(logger.error);
       return false;
     }
     if (isCtrlShift && e.code === "KeyV") {
       e.preventDefault();
-      readText().then((text) => { if (text) terminal.paste(text); }).catch(console.error);
+      readText().then((text) => { if (text) terminal.paste(text); }).catch(logger.error);
       return false;
     }
     if (isCtrl && !e.shiftKey && e.code === "KeyC") {
       const selection = terminal.getSelection();
       if (selection) {
         e.preventDefault();
-        writeText(selection).catch(console.error);
+        writeText(selection).catch(logger.error);
         terminal.clearSelection();
         return false;
       }
@@ -144,7 +146,7 @@ export function getOrCreateRemoteTerminal(remotePaneId: string): RemoteTerminalE
     }
     if (isCtrl && !e.shiftKey && e.code === "KeyV") {
       e.preventDefault();
-      readText().then((text) => { if (text) terminal.paste(text); }).catch(console.error);
+      readText().then((text) => { if (text) terminal.paste(text); }).catch(logger.error);
       return false;
     }
     return true;
@@ -153,16 +155,33 @@ export function getOrCreateRemoteTerminal(remotePaneId: string): RemoteTerminalE
   const entry: RemoteTerminalEntry = { terminal, fitAddon, webglAddon: null, container };
   registry.set(remotePaneId, entry);
 
-  // Defer WebGL addon init
-  setTimeout(() => {
+  // Defer WebGL addon init; on context loss, retry up to twice before
+  // falling back to Canvas2D permanently. Mirrors terminalRegistry behavior
+  // to recover from Chromium/Nvidia atlas corruption after sleep/wake.
+  const loadWebgl = (retryCount: number) => {
+    // Identity check guards against remotePaneId reuse between dispose and timer fire.
+    if (registry.get(remotePaneId) !== entry) return;
     try {
       const addon = new WebglAddon();
+      installAtlasMergeWorkaround(addon);
+      addon.onContextLoss(() => {
+        logger.warn(`[remoteTerminalRegistry] WebGL context lost (retry ${retryCount}/2)`);
+        try { addon.dispose(); } catch { /* already disposed */ }
+        entry.webglAddon = null;
+        if (retryCount < 2 && registry.get(remotePaneId) === entry) {
+          setTimeout(() => loadWebgl(retryCount + 1), 200);
+        }
+      });
       terminal.loadAddon(addon);
       entry.webglAddon = addon;
-    } catch {
-      // WebGL not available
+      if (Number.isFinite(terminal.rows) && terminal.rows > 0) {
+        terminal.refresh(0, terminal.rows - 1);
+      }
+    } catch (e) {
+      logger.warn("[remoteTerminalRegistry] WebGL addon load failed:", e);
     }
-  }, 0);
+  };
+  setTimeout(() => loadWebgl(0), 0);
 
   return { ...entry, isNew: true };
 }
@@ -224,4 +243,88 @@ export function applySettingsToAllRemote(opts: {
     if (opts.scrollback !== undefined) entry.terminal.options.scrollback = opts.scrollback;
     entry.fitAddon.fit();
   }
+}
+
+/**
+ * Heavy recovery for one remote terminal — dispose + recreate WebglAddon.
+ * Mirror of `recoverTerminal` in terminalRegistry; see there for rationale.
+ */
+export function recoverRemoteTerminal(remotePaneId: string): boolean {
+  const entry = registry.get(remotePaneId);
+  if (!entry) return false;
+
+  if (entry.webglAddon) {
+    try {
+      // Manual-only full reset of the shared atlas cache; see recoverTerminal
+      // in terminalRegistry for rationale.
+      entry.webglAddon.clearTextureAtlas();
+      scrubAtlasAfterClear(entry.webglAddon);
+    } catch (e) {
+      logger.warn("[remoteTerminalRegistry] recoverRemoteTerminal: atlas clear failed:", e);
+    }
+    try {
+      entry.webglAddon.dispose();
+    } catch (e) {
+      logger.warn("[remoteTerminalRegistry] recoverRemoteTerminal: dispose failed:", e);
+    }
+    entry.webglAddon = null;
+  }
+
+  try {
+    const addon = new WebglAddon();
+    installAtlasMergeWorkaround(addon);
+    addon.onContextLoss(() => {
+      try { addon.dispose(); } catch { /* already disposed */ }
+      if (registry.get(remotePaneId) === entry) entry.webglAddon = null;
+    });
+    entry.terminal.loadAddon(addon);
+    entry.webglAddon = addon;
+  } catch (e) {
+    logger.error("[remoteTerminalRegistry] recoverRemoteTerminal: WebGL re-init failed, staying on Canvas2D:", e);
+  }
+
+  if (Number.isFinite(entry.terminal.rows) && entry.terminal.rows > 0) {
+    try {
+      entry.terminal.refresh(0, entry.terminal.rows - 1);
+    } catch (e) {
+      logger.warn("[remoteTerminalRegistry] recoverRemoteTerminal: refresh failed:", e);
+    }
+  }
+  return true;
+}
+
+/**
+ * Heavy recovery for ALL remote terminals. Returns number processed.
+ */
+export function recoverAllRemoteTerminals(): number {
+  let count = 0;
+  for (const id of Array.from(registry.keys())) {
+    if (recoverRemoteTerminal(id)) count++;
+  }
+  return count;
+}
+
+/**
+ * Refresh ALL remote terminals — re-upload atlas textures + redraw, same
+ * gentle recovery as the local registry (no shared-cache wipe; see
+ * refreshTerminal in terminalRegistry for rationale).
+ *
+ * Returns the number of terminals refreshed (used for toast confirmation).
+ */
+export function refreshAllRemoteTerminals(): number {
+  let count = 0;
+  for (const entry of registry.values()) {
+    if (entry.webglAddon) {
+      invalidateAtlasTextures(entry.webglAddon);
+    }
+    if (Number.isFinite(entry.terminal.rows) && entry.terminal.rows > 0) {
+      try {
+        entry.terminal.refresh(0, entry.terminal.rows - 1);
+        count++;
+      } catch (e) {
+        logger.warn("[remoteTerminalRegistry] refreshAllRemoteTerminals: refresh failed:", e);
+      }
+    }
+  }
+  return count;
 }

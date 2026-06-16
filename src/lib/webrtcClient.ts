@@ -11,6 +11,7 @@ import {
   encodeSplitPaneRequest,
   encodeResizePaneRequest,
   encodeClosePaneRequest,
+  encodePtyHistoryRequest,
 } from "./remoteProtobuf";
 import { emitRemote } from "./remoteEvents";
 import { logger } from "./logger";
@@ -141,6 +142,10 @@ class BrowserRemoteClient {
 
   sendResize(paneId: string, cols: number, rows: number): void {
     this.webRtcClient?.send(encodeResizeRequest(paneId, cols, rows));
+  }
+
+  sendHistoryRequest(paneId: string): void {
+    this.webRtcClient?.send(encodePtyHistoryRequest(paneId));
   }
 
   requestSessionList(): void {

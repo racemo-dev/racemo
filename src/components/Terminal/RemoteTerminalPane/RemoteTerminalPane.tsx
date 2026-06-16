@@ -237,7 +237,19 @@ export default function RemoteTerminalPane({ paneId, remotePaneId, shell }: Remo
       }
     });
 
-    // Fit & sync remote PTY dimensions — 호스트에서 min(호스트, 원격)으로 PTY 적용
+    // Initial mount: request PTY history from host.
+    // Host always responds with PtyResized (current size) first, then history chunks.
+    const requestHistory = () => {
+      fitAddon.fit();
+      if (!isTauri()) {
+        getBrowserRemoteClient().sendHistoryRequest(remotePaneId);
+      } else {
+        invoke("request_remote_pty_history", { paneId: remotePaneId })
+          .catch((err) => logger.error("[remote] Failed to request history:", err));
+      }
+    };
+
+    // Window resize: notify host of new viewport (host PTY is never resized by this).
     const syncSize = () => {
       fitAddon.fit();
       if (!isTauri()) {
@@ -254,7 +266,7 @@ export default function RemoteTerminalPane({ paneId, remotePaneId, shell }: Remo
     let fitAttempts = 0;
     const tryFit = () => {
       if (container.clientWidth > 0 && container.clientHeight > 0) {
-        syncSize();
+        requestHistory();
         term.refresh(0, term.rows - 1);
       } else if (fitAttempts < 30) {
         fitAttempts++;
@@ -318,6 +330,47 @@ export default function RemoteTerminalPane({ paneId, remotePaneId, shell }: Remo
     });
   }, []);
 
+  // Scroll-to-bottom indicator: visible when terminal viewport is scrolled up from base.
+  const [showScrollDown, setShowScrollDown] = useState(false);
+  useEffect(() => {
+    let raf: number | null = null;
+    let cleanup: (() => void) | undefined;
+    let disposed = false;
+
+    const attach = () => {
+      if (disposed) return;
+      const term = termRef.current;
+      const container = containerRef.current;
+      if (!term || !container) {
+        raf = requestAnimationFrame(attach);
+        return;
+      }
+      const viewport = container.querySelector(".xterm-viewport") as HTMLElement | null;
+      const check = () => {
+        const buf = term.buffer.active;
+        setShowScrollDown(buf.viewportY < buf.baseY);
+      };
+      const scrollDisp = term.onScroll(check);
+      viewport?.addEventListener("scroll", check, { passive: true });
+      check();
+      cleanup = () => {
+        scrollDisp.dispose();
+        viewport?.removeEventListener("scroll", check);
+      };
+    };
+    attach();
+
+    return () => {
+      disposed = true;
+      if (raf !== null) cancelAnimationFrame(raf);
+      cleanup?.();
+    };
+  }, [remotePaneId]);
+
+  const handleScrollToBottom = () => {
+    termRef.current?.scrollToBottom();
+  };
+
   return (
     <div
       className="w-full h-full relative flex flex-col"
@@ -347,6 +400,37 @@ export default function RemoteTerminalPane({ paneId, remotePaneId, shell }: Remo
           setCtxMenu({ x: e.clientX, y: e.clientY });
         }}
       >
+        {showScrollDown && (
+          <button
+            onClick={(e) => { e.stopPropagation(); handleScrollToBottom(); }}
+            title="Scroll to bottom"
+            aria-label="Scroll to bottom"
+            className="absolute z-30"
+            style={{
+              bottom: 12,
+              left: "50%",
+              transform: "translateX(-50%)",
+              width: 28,
+              height: 28,
+              borderRadius: "50%",
+              background: "color-mix(in srgb, var(--bg-elevated) 92%, transparent)",
+              border: "1px solid var(--border-default)",
+              color: "var(--text-secondary)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
+              padding: 0,
+            }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--text-primary)"; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--text-secondary)"; }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+        )}
         {internalDragOver && (
           <div
             className="absolute inset-0 z-30 pointer-events-none"

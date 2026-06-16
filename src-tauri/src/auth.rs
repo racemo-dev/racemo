@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 const SERVICE_NAME: &str = "com.racemo.app";
 
@@ -468,6 +468,9 @@ pub async fn auth_poll_token(
         (&token_res.access_token, &token_res.refresh_token)
     {
         save_tokens(&app, access, refresh)?;
+        // 로그인 직후 presence loop 시작 — 모바일이 즉시 데스크탑 카드를 본다.
+        let presence_state = app.state::<crate::remote::presence::PresenceState>();
+        crate::remote::presence::start(&app, (*presence_state).clone()).await;
     }
 
     Ok(token_res)
@@ -521,6 +524,10 @@ pub async fn auth_logout(app: AppHandle) -> Result<(), String> {
             .send()
             .await;
     }
+
+    // 토큰 폐기 전에 presence loop 부터 멈춰서 시그널링 서버에 깨끗한 close 통지.
+    let presence_state = app.state::<crate::remote::presence::PresenceState>();
+    crate::remote::presence::stop(&presence_state).await;
 
     clear_tokens(&app);
     Ok(())

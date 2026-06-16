@@ -482,9 +482,18 @@ export const setupRemoteListeners = async () => {
       const { status, pairing_code, error } = payload as { status: string; pairing_code?: string; error?: string };
       logger.debug(`[remoteStore] EVENT remote-host-status: ${status} (error: ${error})`);
       if (status === "needs_reauth") {
-        useSettingsStore.getState().setShareAliveEnabled(false);
-        useAuthStore.getState().logout();
-        useRemoteStore.setState({ hostStatus: "disconnected", hostError: null });
+        // JWT expired during share — try refresh + restart before giving up.
+        invoke("start_account_hosting")
+          .then(() => {
+            logger.debug("[remoteStore] needs_reauth: hosting restarted with fresh token");
+            useRemoteStore.setState({ hostStatus: "waiting" });
+          })
+          .catch(() => {
+            logger.warn("[remoteStore] needs_reauth: token refresh failed, logging out");
+            useSettingsStore.getState().setShareAliveEnabled(false);
+            useAuthStore.getState().logout();
+            useRemoteStore.setState({ hostStatus: "disconnected", hostError: null });
+          });
         return;
       }
       const prev = useRemoteStore.getState();

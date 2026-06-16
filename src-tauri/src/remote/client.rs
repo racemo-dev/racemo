@@ -12,6 +12,50 @@ const MAX_DC_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
 
 type PendingApiMap = HashMap<String, oneshot::Sender<Result<String, String>>>;
 
+/// Reassembly buffer for a chunked ApiResponse.
+/// Filled in chunk_seq order; once `received` reaches `total` the joined
+/// `result_json` is delivered to the pending oneshot.
+struct ApiChunkBuffer {
+    total: u32,
+    received: u32,
+    chunks: Vec<Option<String>>,
+}
+
+impl ApiChunkBuffer {
+    fn new(total: u32) -> Self {
+        Self {
+            total,
+            received: 0,
+            chunks: vec![None; total as usize],
+        }
+    }
+    fn add(&mut self, seq: u32, data: String) -> bool {
+        if seq >= self.total {
+            return false;
+        }
+        let slot = &mut self.chunks[seq as usize];
+        if slot.is_some() {
+            return false;
+        }
+        *slot = Some(data);
+        self.received += 1;
+        true
+    }
+    fn is_complete(&self) -> bool {
+        self.received == self.total
+    }
+    fn assemble(self) -> String {
+        let total: usize = self.chunks.iter().flatten().map(|s| s.len()).sum();
+        let mut out = String::with_capacity(total);
+        for c in self.chunks.into_iter().flatten() {
+            out.push_str(&c);
+        }
+        out
+    }
+}
+
+type ApiChunkMap = HashMap<String, ApiChunkBuffer>;
+
 /// Remote client: receives terminal output from host via WebRTC Data Channel
 /// and forwards decoded data to the Tauri frontend.
 pub struct RemoteClient {
@@ -21,6 +65,9 @@ pub struct RemoteClient {
     output_tx: mpsc::UnboundedSender<RemoteOutput>,
     /// Pending API request callbacks keyed by request_id.
     pending_api_requests: Arc<std::sync::Mutex<PendingApiMap>>,
+    /// In-flight chunk reassembly buffers keyed by request_id.
+    /// Created lazily on the first chunk; removed on completion.
+    api_chunks: Arc<std::sync::Mutex<ApiChunkMap>>,
     /// Counter for generating unique request IDs.
     request_counter: Arc<AtomicU64>,
     /// Notified when the data channel transitions to Open state.
@@ -58,6 +105,7 @@ impl RemoteClient {
                 data_channel: None,
                 output_tx,
                 pending_api_requests: Arc::new(std::sync::Mutex::new(HashMap::new())),
+                api_chunks: Arc::new(std::sync::Mutex::new(HashMap::new())),
                 request_counter: Arc::new(AtomicU64::new(1)),
                 dc_open_notify: Arc::new(tokio::sync::Notify::new()),
             },
@@ -69,6 +117,7 @@ impl RemoteClient {
     pub fn set_data_channel(&mut self, dc: Arc<RTCDataChannel>) {
         let tx = self.output_tx.clone();
         let pending = self.pending_api_requests.clone();
+        let chunks = self.api_chunks.clone();
 
         // Notify waiters when DC opens
         let notify = self.dc_open_notify.clone();
@@ -142,15 +191,56 @@ impl RemoteClient {
                             });
                         }
                         Some(proto::remote_message::Payload::ApiResponse(resp)) => {
-                            log::info!("[remote-client] ApiResponse id={}", resp.request_id);
-                            if let Ok(mut map) = pending.lock() {
-                                if let Some(sender) = map.remove(&resp.request_id) {
-                                    let result = if resp.error.is_empty() {
-                                        Ok(resp.result_json)
+                            // Errors and single-message (chunk_total == 0 or 1)
+                            // responses dispatch immediately. Chunked responses
+                            // are reassembled in `chunks` keyed by request_id
+                            // and only dispatched once all chunks arrive.
+                            if !resp.error.is_empty() {
+                                log::info!("[remote-client] ApiResponse error id={}", resp.request_id);
+                                if let Ok(mut buf) = chunks.lock() { buf.remove(&resp.request_id); }
+                                if let Ok(mut map) = pending.lock() {
+                                    if let Some(sender) = map.remove(&resp.request_id) {
+                                        let _ = sender.send(Err(resp.error));
+                                    }
+                                }
+                            } else if resp.chunk_total <= 1 {
+                                log::info!("[remote-client] ApiResponse id={}", resp.request_id);
+                                if let Ok(mut map) = pending.lock() {
+                                    if let Some(sender) = map.remove(&resp.request_id) {
+                                        let _ = sender.send(Ok(resp.result_json));
+                                    }
+                                }
+                            } else {
+                                let request_id = resp.request_id.clone();
+                                let total = resp.chunk_total;
+                                let seq = resp.chunk_seq;
+                                let data = resp.result_json;
+                                let assembled = if let Ok(mut buf) = chunks.lock() {
+                                    let entry = buf.entry(request_id.clone())
+                                        .or_insert_with(|| ApiChunkBuffer::new(total));
+                                    if entry.total != total {
+                                        log::warn!("[remote-client] chunk total mismatch id={} {}!={}", request_id, entry.total, total);
+                                        None
+                                    } else if !entry.add(seq, data) {
+                                        log::warn!("[remote-client] chunk dup/oob id={} seq={}", request_id, seq);
+                                        None
+                                    } else if entry.is_complete() {
+                                        // remove() returns the buffer; consume it.
+                                        buf.remove(&request_id).map(|b| b.assemble())
                                     } else {
-                                        Err(resp.error)
-                                    };
-                                    let _ = sender.send(result);
+                                        log::debug!("[remote-client] chunk {}/{} id={}", seq + 1, total, request_id);
+                                        None
+                                    }
+                                } else {
+                                    None
+                                };
+                                if let Some(full) = assembled {
+                                    log::info!("[remote-client] ApiResponse id={} chunks={} bytes={}", request_id, total, full.len());
+                                    if let Ok(mut map) = pending.lock() {
+                                        if let Some(sender) = map.remove(&request_id) {
+                                            let _ = sender.send(Ok(full));
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -209,6 +299,28 @@ impl RemoteClient {
                     pty_id: pty_id.to_string(),
                     rows,
                     cols,
+                },
+            )),
+        };
+        let bytes = msg.encode_to_vec();
+        dc.send(&bytes::Bytes::copy_from_slice(&bytes))
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    /// Send a PTY history request to the host.
+    /// The host always responds with PtyResized (current size), and sends scroll-back
+    /// history chunks on the first request for each pty_id per connection.
+    pub async fn send_pty_history_request(&self, pty_id: &str) -> Result<(), String> {
+        let dc = self
+            .data_channel
+            .as_ref()
+            .ok_or("No data channel")?;
+        let msg = proto::RemoteMessage {
+            payload: Some(proto::remote_message::Payload::PtyHistoryRequest(
+                proto::PtyHistoryRequest {
+                    pty_id: pty_id.to_string(),
                 },
             )),
         };

@@ -11,6 +11,28 @@ pub struct ConnectionRequestUser {
     pub avatar_url: Option<String>,
 }
 
+/// Compact session summary pushed to the signaling server so it can keep
+/// the device's session list fresh between WS reconnects (mobile reads it via
+/// `GET /auth/me/devices`). Mirrors the JSON shape of the registration-time
+/// `&sessions=...` query param so the server can store both via the same code path.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionSummary {
+    pub name: String,
+    pub pane_count: u32,
+}
+
+/// Single prompt entry — wire format for desktop ↔ mobile sync.
+/// `status` is "pending" | "done"; `completed_at` is None for pending.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PromptDto {
+    pub id: String,
+    pub text: String,
+    pub status: String,
+    pub created_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<i64>,
+}
+
 /// Signaling protocol messages (JSON over WebSocket).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -19,6 +41,14 @@ pub enum SignalingMessage {
     CreateRoom { pairing_code: String },
     SdpAnswer { sdp: String, #[serde(default)] room_code: Option<String> },
     ApproveConnection { approved: bool },
+    /// Push host's current session list. Server replaces its cached snapshot
+    /// (full truth, not delta). Fire-and-forget — no response. Old signaling
+    /// servers ignore unknown types, so this is forward-compatible.
+    UpdateSessions { sessions: Vec<SessionSummary> },
+    /// Push host's current prompts list. Server replaces its cached snapshot
+    /// and broadcasts to paired mobile clients as a `peer_message` envelope
+    /// with `kind: "prompts_updated"`. Mirrors UpdateSessions semantics.
+    UpdatePrompts { prompts: Vec<PromptDto> },
 
     // Client → Server
     JoinRoom { pairing_code: String },
@@ -59,6 +89,14 @@ pub enum SignalingMessage {
 
     // Account-based: Server → Host (client WS closed)
     ClientDisconnected { room_code: String },
+
+    /// 일반 peer-to-peer 이벤트 envelope. payload 는 wire 위에서는
+    /// 임의 JSON 으로 전달되며, 서버는 forward 만 한다 (해석 X).
+    /// 첫 사용처: 서버가 호스트 WS close 감지 시 모바일에 합성 발송 →
+    /// `payload.kind == "peer_offline"` 으로 모바일이 즉시 reconnecting
+    /// 상태 전환. host → mobile 방향은 graceful shutdown 통보용
+    /// (`payload.kind == "host_shutting_down"`) 등으로 사용 가능.
+    PeerMessage { payload: serde_json::Value },
 }
 
 /// Internal command for the outgoing WS task.
@@ -339,5 +377,101 @@ mod tests {
             SignalingMessage::ConnectionResponse { approved, .. } => assert!(!approved),
             other => panic!("Expected ConnectionResponse, got: {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_update_sessions_serializes_with_snake_case_type() {
+        let msg = SignalingMessage::UpdateSessions {
+            sessions: vec![
+                SessionSummary { name: "flutter".into(), pane_count: 1 },
+                SessionSummary { name: "racemo".into(), pane_count: 3 },
+            ],
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        // Wire format must match the spec agreed with racemo-signal.
+        assert!(json.contains(r#""type":"update_sessions""#), "got: {json}");
+        assert!(json.contains(r#""name":"flutter""#));
+        assert!(json.contains(r#""pane_count":1"#));
+        assert!(json.contains(r#""pane_count":3"#));
+    }
+
+    #[test]
+    fn test_update_sessions_round_trip() {
+        let original = SignalingMessage::UpdateSessions {
+            sessions: vec![SessionSummary { name: "a".into(), pane_count: 2 }],
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: SignalingMessage = serde_json::from_str(&json).unwrap();
+        match parsed {
+            SignalingMessage::UpdateSessions { sessions } => {
+                assert_eq!(sessions.len(), 1);
+                assert_eq!(sessions[0].name, "a");
+                assert_eq!(sessions[0].pane_count, 2);
+            }
+            other => panic!("Expected UpdateSessions, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_update_sessions_empty_list() {
+        // Closing the last session must produce a valid empty-list payload.
+        let msg = SignalingMessage::UpdateSessions { sessions: vec![] };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(json, r#"{"type":"update_sessions","sessions":[]}"#);
+    }
+
+    #[test]
+    fn test_update_prompts_round_trip() {
+        let original = SignalingMessage::UpdatePrompts {
+            prompts: vec![
+                PromptDto {
+                    id: "p1".into(),
+                    text: "deploy staging".into(),
+                    status: "pending".into(),
+                    created_at: 1700000000,
+                    completed_at: None,
+                },
+                PromptDto {
+                    id: "p2".into(),
+                    text: "rotate keys".into(),
+                    status: "done".into(),
+                    created_at: 1699000000,
+                    completed_at: Some(1699500000),
+                },
+            ],
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        assert!(json.contains(r#""type":"update_prompts""#), "got: {json}");
+        let parsed: SignalingMessage = serde_json::from_str(&json).unwrap();
+        match parsed {
+            SignalingMessage::UpdatePrompts { prompts } => {
+                assert_eq!(prompts.len(), 2);
+                assert_eq!(prompts[0].id, "p1");
+                assert_eq!(prompts[0].status, "pending");
+                assert_eq!(prompts[0].completed_at, None);
+                assert_eq!(prompts[1].completed_at, Some(1699500000));
+            }
+            other => panic!("Expected UpdatePrompts, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_update_prompts_empty_list() {
+        let msg = SignalingMessage::UpdatePrompts { prompts: vec![] };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(json, r#"{"type":"update_prompts","prompts":[]}"#);
+    }
+
+    #[test]
+    fn test_prompt_dto_omits_completed_at_when_none() {
+        let dto = PromptDto {
+            id: "x".into(),
+            text: "y".into(),
+            status: "pending".into(),
+            created_at: 1,
+            completed_at: None,
+        };
+        let json = serde_json::to_string(&dto).unwrap();
+        assert!(!json.contains("completed_at"), "got: {json}");
     }
 }

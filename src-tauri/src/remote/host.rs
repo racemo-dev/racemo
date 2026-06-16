@@ -66,10 +66,8 @@ impl RemoteHost {
                         Some(ServerMessage::PtyExit { pane_id }) => {
                             log::info!("[bridge] PtyExit: {pane_id}");
                             let remote_msg = proto::RemoteMessage {
-                                payload: Some(proto::remote_message::Payload::Disconnect(
-                                    proto::Disconnect {
-                                        reason: format!("PTY exited: {pane_id}"),
-                                    },
+                                payload: Some(proto::remote_message::Payload::PtyResized(
+                                    proto::PtyResized { pty_id: pane_id, cols: 0, rows: 0 },
                                 )),
                             };
                             let bytes = remote_msg.encode_to_vec();

@@ -1,3 +1,4 @@
+pub mod ailog;
 pub mod auth;
 pub mod claudelog;
 pub mod codexlog;
@@ -9,11 +10,15 @@ pub mod opencodelog;
 pub mod ipc;
 pub mod keyboard_hook;
 pub mod layout;
+pub mod notify;
 pub mod persistence;
 pub mod process_util;
 pub mod remote;
 pub mod session;
 pub mod updater;
+
+#[cfg(test)]
+mod tests;
 
 use std::sync::{Arc, OnceLock};
 
@@ -34,6 +39,7 @@ use tokio::sync::Mutex as TokioMutex;
 
 use crate::commands::IpcState;
 use crate::remote::RemoteState;
+use crate::remote::presence::PresenceState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -57,9 +63,13 @@ pub fn run() {
             commands::close_pane,
             commands::resize_pane,
             commands::write_to_pty,
+            commands::ack_pty_output,
+            commands::reset_pty_acks,
             commands::resize_pty,
             commands::respawn_pty,
             commands::set_pane_last_command,
+            commands::list_pane_processes,
+            commands::kill_pane_process,
             commands::attach_session,
             commands::list_directory,
             commands::get_home_dir,
@@ -91,6 +101,7 @@ pub fn run() {
             commands::add_favorite,
             commands::remove_favorite,
             commands::save_clipboard_image,
+            commands::compress_image_for_ai,
             commands::git_init,
             commands::git_repo_info,
             commands::git_file_statuses,
@@ -164,12 +175,14 @@ pub fn run() {
             commands::clear_shell_log,
             commands::start_remote_hosting,
             commands::stop_remote_hosting,
+            commands::update_remote_prompts,
             commands::get_remote_status,
             commands::connect_to_remote_host,
             commands::disconnect_remote,
             commands::approve_remote_client,
             commands::write_to_remote_pty,
             commands::resize_remote_pty,
+            commands::request_remote_pty_history,
             commands::resize_remote_pane,
             commands::split_remote_pane,
             commands::close_remote_pane,
@@ -220,6 +233,8 @@ pub fn run() {
             updater::check_app_update,
             updater::install_app_update,
             updater::relaunch_app,
+            commands::get_notify_settings,
+            commands::set_notify_settings,
         ]);
 
     #[cfg(target_os = "macos")]
@@ -411,10 +426,43 @@ pub fn run() {
                 Arc::new(TokioMutex::new(crate::remote::RemoteHostingState::default()));
             app.manage(remote_state);
 
+            // Manage presence loop state. 로그인 직후 start, 로그아웃/종료 시 stop.
+            let presence_state: PresenceState = Arc::new(TokioMutex::new(None));
+            app.manage(presence_state.clone());
+
+            // Manage prompts snapshot — frontend pushes via update_remote_prompts.
+            app.manage(crate::remote::prompts_state::PromptsState::new());
+
+            // 명령 완료 푸시 알림 디스패처 등록 (pty-command-finished 이벤트 구독).
+            crate::notify::setup_listener(app.handle());
+
             // Connect to server asynchronously.
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 ipc::client::setup_ipc(app_handle, ipc_state).await;
+            });
+
+            // 부팅 시 이미 로그인 상태이면 presence 즉시 시작. 진단 가시성을 위해
+            // 모든 분기에서 명시적 log 를 남긴다 — 토큰 읽기 실패가 silent skip 되면
+            // 디버깅이 어려움.
+            let app_handle = app.handle().clone();
+            let presence_for_boot = presence_state.clone();
+            tauri::async_runtime::spawn(async move {
+                log::info!("[presence] boot check: reading stored token");
+                match crate::auth::auth_get_access_token(app_handle.clone()).await {
+                    Ok(Some(_)) => {
+                        log::info!("[presence] token found on boot — starting presence loop");
+                        crate::remote::presence::start(&app_handle, presence_for_boot).await;
+                    }
+                    Ok(None) => {
+                        log::info!(
+                            "[presence] no token on boot — will start after login"
+                        );
+                    }
+                    Err(e) => {
+                        log::warn!("[presence] boot token read failed: {e}");
+                    }
+                }
             });
 
             log::info!("=== Racemo setup complete ===");

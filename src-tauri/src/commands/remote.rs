@@ -409,6 +409,20 @@ pub async fn resize_remote_pty(
 }
 
 
+/// Request PTY history from a remote host via WebRTC Data Channel (client mode).
+/// The host responds with PtyResized (current size) and history chunks (first request only).
+#[tauri::command]
+pub async fn request_remote_pty_history(
+    pane_id: String,
+    remote_state: State<'_, RemoteState>,
+) -> Result<(), String> {
+    let state = remote_state.lock().await;
+    let client = state
+        .client_for_pane(&pane_id)
+        .ok_or("Not connected to remote host for this pane")?;
+    client.send_pty_history_request(&pane_id).await
+}
+
 /// Send resize pane (split ratio) request to a remote host via WebRTC Data Channel (client mode).
 #[tauri::command]
 pub async fn resize_remote_pane(

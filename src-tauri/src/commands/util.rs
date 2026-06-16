@@ -608,7 +608,7 @@ pub fn kill_streaming(channel_id: String) {
 }
 
 /// Strip ANSI/VT escape sequences from a string.
-fn strip_ansi(s: &str) -> String {
+pub(crate) fn strip_ansi(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
@@ -636,7 +636,7 @@ fn strip_ansi(s: &str) -> String {
 }
 
 /// Check if a string is a complete JSON object (balanced braces).
-fn json_is_complete(s: &str) -> bool {
+pub(crate) fn json_is_complete(s: &str) -> bool {
     let s = s.trim();
     if !s.starts_with('{') {
         return true; // Not JSON — treat as a standalone line
@@ -1782,6 +1782,55 @@ pub fn save_clipboard_image(app: AppHandle, data: Vec<u8>, width: u32, height: u
     img.save(&path).map_err(|e| e.to_string())?;
 
     Ok(path.to_string_lossy().to_string())
+}
+
+#[derive(serde::Serialize)]
+pub struct CompressResult {
+    pub path: String,
+    pub original_bytes: u64,
+    pub compressed_bytes: u64,
+    pub data_url: String,
+}
+
+#[command]
+pub fn compress_image_for_ai(app: AppHandle, path: String) -> Result<CompressResult, String> {
+    use base64::Engine as _;
+
+    let original_bytes = fs::metadata(&path).map_err(|e| e.to_string())?.len();
+
+    let img = image::open(&path).map_err(|e| e.to_string())?;
+
+    const MAX_DIM: u32 = 1568;
+    let img = if img.width() > MAX_DIM || img.height() > MAX_DIM {
+        img.resize(MAX_DIM, MAX_DIM, image::imageops::FilterType::Lanczos3)
+    } else {
+        img
+    };
+
+    let cache_dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
+    let images_dir = cache_dir.join("images");
+    fs::create_dir_all(&images_dir).map_err(|e| e.to_string())?;
+
+    let filename = format!("{}.jpg", uuid::Uuid::new_v4());
+    let output_path = images_dir.join(&filename);
+
+    img.into_rgb8()
+        .save_with_format(&output_path, image::ImageFormat::Jpeg)
+        .map_err(|e| e.to_string())?;
+
+    let bytes = fs::read(&output_path).map_err(|e| e.to_string())?;
+    let compressed_bytes = bytes.len() as u64;
+    let data_url = format!(
+        "data:image/jpeg;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(&bytes)
+    );
+
+    Ok(CompressResult {
+        path: output_path.to_string_lossy().to_string(),
+        original_bytes,
+        compressed_bytes,
+        data_url,
+    })
 }
 
 #[command]

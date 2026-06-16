@@ -4,6 +4,8 @@ pub mod proto {
 
 pub mod client;
 pub mod pairing;
+pub mod presence;
+pub mod prompts_state;
 pub mod signaling;
 pub mod webrtc_conn;
 pub mod host;
