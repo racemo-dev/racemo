@@ -5,17 +5,20 @@ import { isTauri } from "../../../lib/bridge";
 import { useSessionStore } from "../../../stores/sessionStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { useBroadcastStore } from "../../../stores/broadcastStore";
-import { getTerminal, disposeTerminal } from "../../../lib/terminalRegistry";
+import { getTerminal, disposeTerminal, refreshTerminal } from "../../../lib/terminalRegistry";
 import { clearPtyOutputBuffer } from "../../../lib/ptyOutputBuffer";
 import { useCommandErrorStore } from "../../../stores/commandErrorStore";
 import ErrorAiPopup from "../ErrorAiPopup";
 import { firstLeafId } from "../../../lib/paneTreeUtils";
+import { logger } from "../../../lib/logger";
 import { useAutocompleteStore } from "../../../stores/autocompleteStore";
 import { useToastStore } from "../../../stores/toastStore";
+import { useDialogStore } from "../../../stores/dialogStore";
 import { getExplorerDrag, onExplorerDragChange } from "../../Sidebar/SidebarPanel/constants";
 import { getModLabel } from "../../../lib/osUtils";
 import SearchBar, { type SearchBarHandle } from "../../SearchBar";
 import AutocompletePopup from "../AutocompletePopup";
+import TerminalInputBar from "./TerminalInputBar";
 import { Sparkle } from "@phosphor-icons/react";
 import type { Session } from "../../../types/session";
 
@@ -65,6 +68,12 @@ export default function TerminalPane({ paneId, ptyId, initialCwd, lastCommand }:
   const commandError = useCommandErrorStore((s) => s.errors[ptyId]);
   const [showErrorPopup, setShowErrorPopup] = useState(false);
   const pasteProgress = useToastStore((s) => s.progress?.ptyId === ptyId ? s.progress : null);
+  const [inputBarOpen, setInputBarOpen] = useState(false);
+  const inputBarOpenRef = useRef(false);
+  inputBarOpenRef.current = inputBarOpen;
+  const [pendingImages, setPendingImages] = useState<string[] | undefined>();
+  const handleInputBarClose = useCallback(() => { setInputBarOpen(false); setPendingImages(undefined); }, []);
+  const handlePendingImagesConsumed = useCallback(() => setPendingImages(undefined), []);
 
   // Context menu close handler
   useContextMenuClose(ctxMenu, setCtxMenu);
@@ -109,20 +118,48 @@ export default function TerminalPane({ paneId, ptyId, initialCwd, lastCommand }:
         .then((session) => {
           setSession(session);
         })
-        .catch(console.error);
+        .catch(logger.error);
     },
     [paneId, ptyId, setSession, getSessionId],
   );
 
   const handleClose = useCallback(() => {
-    invoke<Session>("close_pane", { sessionId: getSessionId(), paneId })
+    const sessionId = getSessionId();
+    const session = useSessionStore.getState().sessions.find((s) => s.id === sessionId);
+    const isLastPane = session?.rootPane.type === "leaf";
+
+    if (isLastPane) {
+      const lang = useSettingsStore.getState().language;
+      const isKo = lang === "ko";
+      useDialogStore.getState().show({
+        title: isKo ? "마지막 페인 닫기" : "Close last pane",
+        message: isKo
+          ? "이 탭의 마지막 페인입니다. 닫으면 탭이 종료됩니다."
+          : "This is the last pane in the tab. Closing it will close the tab.",
+        type: "warning",
+        confirmLabel: isKo ? "탭 종료" : "Close tab",
+        cancelLabel: isKo ? "취소" : "Cancel",
+        onConfirm: () => {
+          const { removeSession } = useSessionStore.getState();
+          removeSession(sessionId);
+          invoke<Session | null>("close_session", { sessionId })
+            .then((nextSession) => {
+              if (nextSession) setFocusedPane(firstLeafId(nextSession.rootPane));
+            })
+            .catch(logger.error);
+        },
+      });
+      return;
+    }
+
+    invoke<Session>("close_pane", { sessionId, paneId })
       .then((session) => {
         clearPtyOutputBuffer(ptyId);
         disposeTerminal(ptyId);
         setSession(session);
         setFocusedPane(firstLeafId(session.rootPane));
       })
-      .catch(console.error);
+      .catch(logger.error);
   }, [paneId, ptyId, setSession, setFocusedPane, getSessionId]);
 
   // Autocomplete
@@ -161,8 +198,27 @@ export default function TerminalPane({ paneId, ptyId, initialCwd, lastCommand }:
   // Search shortcut
   useSearchShortcut(ptyId, isFocusedRef, containerRef, setSearchOpen, searchBarRef);
 
+  // Input bar toggle shortcut (Cmd+I / Ctrl+I) — scoped to this pane's container
+  // so N mounted panes don't all run a handler on every window keystroke.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "i") {
+        e.preventDefault();
+        e.stopPropagation();
+        setInputBarOpen((prev) => !prev);
+      }
+    };
+    container.addEventListener("keydown", handler, true);
+    return () => container.removeEventListener("keydown", handler, true);
+  }, []);
+
   // Drag and drop (native file drop from OS)
-  const isDragOver = useDragDrop(ptyId, isFocusedRef);
+  const isDragOver = useDragDrop(ptyId, isFocusedRef, inputBarOpenRef, containerRef, (images) => {
+    setInputBarOpen(true);
+    setPendingImages(images);
+  });
 
   // Internal drag-and-drop from explorer (pointer-based, detect hover via drag state)
   const [internalDragOver, setInternalDragOver] = useState(false);
@@ -177,6 +233,48 @@ export default function TerminalPane({ paneId, ptyId, initialCwd, lastCommand }:
       setInternalDragOver(over);
     });
   }, [wrapperRef]);
+
+  // Scroll-to-bottom indicator: visible when terminal viewport is scrolled up from base.
+  const [showScrollDown, setShowScrollDown] = useState(false);
+  useEffect(() => {
+    let raf: number | null = null;
+    let cleanup: (() => void) | undefined;
+    let disposed = false;
+
+    const attach = () => {
+      if (disposed) return;
+      const entry = getTerminal(ptyId);
+      const el = entry?.terminal.element;
+      if (!entry || !el) {
+        raf = requestAnimationFrame(attach);
+        return;
+      }
+      const term = entry.terminal;
+      const viewport = el.querySelector(".xterm-viewport") as HTMLElement | null;
+      const check = () => {
+        const buf = term.buffer.active;
+        setShowScrollDown(buf.viewportY < buf.baseY);
+      };
+      const scrollDisp = term.onScroll(check);
+      viewport?.addEventListener("scroll", check, { passive: true });
+      check();
+      cleanup = () => {
+        scrollDisp.dispose();
+        viewport?.removeEventListener("scroll", check);
+      };
+    };
+    attach();
+
+    return () => {
+      disposed = true;
+      if (raf !== null) cancelAnimationFrame(raf);
+      cleanup?.();
+    };
+  }, [ptyId]);
+
+  const handleScrollToBottom = useCallback(() => {
+    getTerminal(ptyId)?.terminal.scrollToBottom();
+  }, [ptyId]);
 
   if (!isTauri()) {
     return (
@@ -293,6 +391,21 @@ export default function TerminalPane({ paneId, ptyId, initialCwd, lastCommand }:
           </span>
         </div>
 
+        {/* Input bar toggle */}
+        <button
+          onClick={(e) => { e.stopPropagation(); setInputBarOpen((prev) => !prev); }}
+          className="p-0.5 rounded transition-colors shrink-0"
+          style={{ color: inputBarOpen ? "var(--accent-cyan, #22d3ee)" : "var(--text-muted)" }}
+          onMouseEnter={(e) => { if (!inputBarOpen) (e.currentTarget as HTMLElement).style.color = "var(--text-secondary)"; }}
+          onMouseLeave={(e) => { if (!inputBarOpen) (e.currentTarget as HTMLElement).style.color = "var(--text-muted)"; }}
+          title={`Toggle input bar (${getModLabel()}+I)`}
+        >
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 'calc(12px * var(--ui-scale))', height: 'calc(12px * var(--ui-scale))' }}>
+            <rect x="2" y="4" width="12" height="8" rx="1.5" />
+            <line x1="4.5" y1="8" x2="8" y2="8" />
+          </svg>
+        </button>
+
         {/* Split & close buttons */}
         <div className="flex items-center gap-0.5">
           <button
@@ -400,7 +513,38 @@ export default function TerminalPane({ paneId, ptyId, initialCwd, lastCommand }:
             onClose={() => setShowErrorPopup(false)}
           />
         )}
-        {((isDragOver && isFocusedRef.current) || internalDragOver) && (
+        {showScrollDown && (
+          <button
+            onClick={(e) => { e.stopPropagation(); handleScrollToBottom(); }}
+            title="Scroll to bottom"
+            aria-label="Scroll to bottom"
+            className="absolute z-30"
+            style={{
+              bottom: 12,
+              left: "50%",
+              transform: "translateX(-50%)",
+              width: 28,
+              height: 28,
+              borderRadius: "50%",
+              background: "color-mix(in srgb, var(--bg-elevated) 92%, transparent)",
+              border: "1px solid var(--border-default)",
+              color: "var(--text-secondary)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
+              padding: 0,
+            }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--text-primary)"; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--text-secondary)"; }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+        )}
+        {(isDragOver || internalDragOver) && (
           <div
             className="absolute inset-0 z-30 pointer-events-none"
             style={{
@@ -457,14 +601,15 @@ export default function TerminalPane({ paneId, ptyId, initialCwd, lastCommand }:
             { label: "Split Down", action: () => handleSplit("vertical", false), shortcut: `${getModLabel()}+S` },
             { label: "Split Left", action: () => handleSplit("horizontal", true), shortcut: `${getModLabel()}+A` },
             { label: "Split Up", action: () => handleSplit("vertical", true), shortcut: `${getModLabel()}+W` },
-          ]).map((item) => (
+            { label: "Refresh Terminal", action: () => refreshTerminal(ptyId) },
+          ] as Array<{ label: string; action: () => void; shortcut?: string }>).map((item) => (
             <button
               key={item.label}
               className="sb-ctx-item text-left hover:bg-[var(--bg-overlay)] transition-colors"
               onClick={() => { item.action(); setCtxMenu(null); }}
             >
               <span>{item.label}</span>
-              <span className="sb-ctx-shortcut">{item.shortcut}</span>
+              {item.shortcut && <span className="sb-ctx-shortcut">{item.shortcut}</span>}
             </button>
           ))}
           <div style={{ height: 1, background: "var(--border-subtle)", margin: "4px 0" }} />
@@ -476,6 +621,16 @@ export default function TerminalPane({ paneId, ptyId, initialCwd, lastCommand }:
             Close Pane
           </button>
         </div>
+      )}
+
+      {/* Input bar */}
+      {inputBarOpen && (
+        <TerminalInputBar
+          ptyId={ptyId}
+          onClose={handleInputBarClose}
+          pendingImages={pendingImages}
+          onPendingImagesConsumed={handlePendingImagesConsumed}
+        />
       )}
 
       {/* Search bar */}

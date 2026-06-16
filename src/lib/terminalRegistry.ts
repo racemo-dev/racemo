@@ -13,6 +13,7 @@ import { useHistoryStore } from "../stores/historyStore";
 import { useSessionStore } from "../stores/sessionStore";
 import { type IMEInterceptor, createIMEInterceptor } from "./platform";
 import { isShellIntegrationActive } from "./commandTracker";
+import { installAtlasMergeWorkaround, invalidateAtlasTextures, scrubAtlasAfterClear, getAtlasFixFireCount } from "./webglAtlasFix";
 import { useToastStore } from "../stores/toastStore";
 import { getGitT } from "./i18n/git";
 import { logger } from "./logger";
@@ -288,16 +289,39 @@ export function getOrCreateTerminal(ptyId: string): TerminalEntry & { isNew: boo
   const entry: TerminalEntry = { terminal, fitAddon, searchAddon, webglAddon: null, container, ime };
   registry.set(ptyId, entry);
 
-  // Defer WebGL addon init so Canvas2D renders immediately
-  setTimeout(() => {
+  // Defer WebGL addon init so Canvas2D renders immediately.
+  // After loading, refresh all rows so CJK glyphs rendered by Canvas2D
+  // are properly re-rendered by the WebGL texture atlas.
+  const loadWebgl = (retryCount: number) => {
+    // Identity check (not just registry.has) — if the ptyId was reused for a
+    // new terminal between the dispose and this timer firing, we must not
+    // attach a stale addon to it.
+    if (registry.get(ptyId) !== entry) return;
     try {
       const addon = new WebglAddon();
+      installAtlasMergeWorkaround(addon);
+      addon.onContextLoss(() => {
+        // Chromium/Nvidia loses the GL context after OS sleep or driver hiccups.
+        // Without a retry, the renderer would silently fall back to Canvas2D
+        // and never recover until app restart.
+        logger.warn(`[terminalRegistry] WebGL context lost (retry ${retryCount}/2)`);
+        try { addon.dispose(); } catch { /* already disposed */ }
+        entry.webglAddon = null;
+        if (retryCount < 2 && registry.get(ptyId) === entry) {
+          setTimeout(() => loadWebgl(retryCount + 1), 200);
+        }
+      });
       terminal.loadAddon(addon);
       entry.webglAddon = addon;
-    } catch {
+      if (Number.isFinite(terminal.rows) && terminal.rows > 0) {
+        terminal.refresh(0, terminal.rows - 1);
+      }
+    } catch (e) {
+      logger.error("[terminalRegistry] Failed to load WebGL addon:", e);
       // WebGL not available, keep using Canvas2D
     }
-  }, 0);
+  };
+  setTimeout(() => loadWebgl(0), 0);
 
   return { ...entry, isNew: true };
 }
@@ -336,6 +360,9 @@ export function applyFontSizeToAll(): void {
     entry.terminal.options.fontSize = fontSize;
     entry.ime.refresh();
     entry.fitAddon.fit();
+    if (Number.isFinite(entry.terminal.rows) && entry.terminal.rows > 0) {
+      entry.terminal.refresh(0, entry.terminal.rows - 1);
+    }
   }
 }
 
@@ -345,6 +372,161 @@ export function clearTextureAtlas(ptyId: string): void {
     entry.webglAddon.clearTextureAtlas();
   }
 }
+
+/**
+ * Force refresh a specific terminal: re-upload all atlas page textures and
+ * redraw. Recovers from stale GPU textures (sleep/wake, GPU drift) WITHOUT
+ * wiping the shared glyph cache.
+ *
+ * Deliberately NOT clearTextureAtlas(): the atlas is shared across terminals,
+ * and 0.19.0's clearTexture leaves stale glyph bookkeeping on its pages. With
+ * focus/visibility handlers calling this for every pane, automatic cache
+ * wipes caused clear→refill→merge churn, and a later merge could then delete
+ * the wrong page (indexes derived from stale glyphs) — permanently corrupting
+ * live cache entries into multi-glyph "franken" stripes. Cache wipes are
+ * reserved for the manual heavy recovery path (recoverTerminal).
+ */
+export function refreshTerminal(ptyId: string): void {
+  const entry = registry.get(ptyId);
+  if (entry) {
+    if (entry.webglAddon) {
+      invalidateAtlasTextures(entry.webglAddon);
+    }
+    if (Number.isFinite(entry.terminal.rows) && entry.terminal.rows > 0) {
+      entry.terminal.refresh(0, entry.terminal.rows - 1);
+    }
+  }
+}
+
+/**
+ * Heavy recovery: dispose & recreate the WebglAddon for one terminal.
+ * Use this when `refreshTerminal()` / `clearTextureAtlas()` are not enough —
+ * the GL context may be soft-degraded (no onContextLoss fired) or the addon's
+ * internal glyph→slot cache may be desynced from the texture. Recreating the
+ * addon is what a window resize does implicitly and is the most reliable
+ * recovery path. Cost: ~1 frame of Canvas2D fallback while the new addon
+ * attaches. Falls back to Canvas2D permanently if re-init throws.
+ */
+export function recoverTerminal(ptyId: string): boolean {
+  const entry = registry.get(ptyId);
+  if (!entry) return false;
+
+  if (entry.webglAddon) {
+    try {
+      // Full reset of the SHARED atlas cache: re-rasterizes every glyph, the
+      // only cure once cache entries themselves are corrupted (e.g. by a bad
+      // page merge). Safe here because this path is manual-only; the atlas
+      // no-ops repeated clears until new glyphs are drawn. The scrub clears
+      // the stale page bookkeeping that would otherwise poison later merges.
+      entry.webglAddon.clearTextureAtlas();
+      scrubAtlasAfterClear(entry.webglAddon);
+    } catch (e) {
+      logger.warn("[terminalRegistry] recoverTerminal: atlas clear failed:", e);
+    }
+    try {
+      entry.webglAddon.dispose();
+    } catch (e) {
+      logger.warn("[terminalRegistry] recoverTerminal: dispose failed:", e);
+    }
+    entry.webglAddon = null;
+  }
+
+  try {
+    const addon = new WebglAddon();
+    installAtlasMergeWorkaround(addon);
+    addon.onContextLoss(() => {
+      try { addon.dispose(); } catch { /* already disposed */ }
+      if (registry.get(ptyId) === entry) entry.webglAddon = null;
+    });
+    entry.terminal.loadAddon(addon);
+    entry.webglAddon = addon;
+  } catch (e) {
+    logger.error("[terminalRegistry] recoverTerminal: WebGL re-init failed, staying on Canvas2D:", e);
+  }
+
+  if (Number.isFinite(entry.terminal.rows) && entry.terminal.rows > 0) {
+    try {
+      entry.terminal.refresh(0, entry.terminal.rows - 1);
+    } catch (e) {
+      logger.warn("[terminalRegistry] recoverTerminal: refresh failed:", e);
+    }
+  }
+  return true;
+}
+
+/**
+ * Heavy recovery for ALL local terminals. Returns number processed.
+ * Use as the manual escape hatch (Cmd/Ctrl+Shift+R) when glyph corruption
+ * doesn't clear via the lighter `refreshAllTerminals` path.
+ */
+export function recoverAllTerminals(): number {
+  let count = 0;
+  for (const ptyId of Array.from(registry.keys())) {
+    if (recoverTerminal(ptyId)) count++;
+  }
+  return count;
+}
+
+/**
+ * Refresh ALL local terminals: re-upload atlas page textures + redraw.
+ * Recovers stale GPU textures after sleep/wake without touching the shared
+ * glyph cache (see refreshTerminal for why cache wipes are avoided here).
+ *
+ * Returns the number of terminals refreshed (used for toast confirmation).
+ */
+export function refreshAllTerminals(): number {
+  let count = 0;
+  for (const entry of registry.values()) {
+    if (entry.webglAddon) {
+      invalidateAtlasTextures(entry.webglAddon);
+    }
+    if (Number.isFinite(entry.terminal.rows) && entry.terminal.rows > 0) {
+      try {
+        entry.terminal.refresh(0, entry.terminal.rows - 1);
+        count++;
+      } catch (e) {
+        logger.warn("[terminalRegistry] refreshAllTerminals: refresh failed:", e);
+      }
+    }
+  }
+  return count;
+}
+
+// Diagnostics for WebGL atlas state (glyph corruption debugging). Available in
+// all builds — the chronic corruption only reproduces in long production
+// sessions, so field inspection matters. Call `__atlasInfo()` in devtools:
+// shows per-terminal atlas page count/sizes/versions, the merge threshold
+// (maxPages), and how many times the merge workaround fired. If the function
+// is missing, the running bundle predates it.
+(window as unknown as Record<string, unknown>).__atlasInfo = () => {
+  const terminals: Record<string, unknown>[] = [];
+  for (const [ptyId, entry] of registry.entries()) {
+    try {
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      const rendererRaw = (entry.webglAddon as any)?._renderer;
+      const renderer = rendererRaw?.value ?? rendererRaw;
+      const atlas = renderer?._charAtlas;
+      /* eslint-enable @typescript-eslint/no-explicit-any */
+      if (!atlas) {
+        terminals.push({ ptyId, atlas: null });
+        continue;
+      }
+      terminals.push({
+        ptyId,
+        maxPages: atlas.constructor?.maxAtlasPages,
+        pageCount: atlas.pages.length,
+        pages: atlas.pages.map((p: { canvas: HTMLCanvasElement; version: number; glyphs?: unknown[] }) => ({
+          size: p.canvas.width,
+          version: p.version,
+          glyphs: p.glyphs?.length,
+        })),
+      });
+    } catch (e) {
+      terminals.push({ ptyId, error: String(e) });
+    }
+  }
+  return { workaroundFires: getAtlasFixFireCount(), terminals };
+};
 
 export function getCursorPixelPosition(ptyId: string): { x: number; y: number; lineHeight: number } | null {
   const entry = registry.get(ptyId);
@@ -391,5 +573,8 @@ export function applySettingsToAll(opts: {
     if (opts.scrollback !== undefined) entry.terminal.options.scrollback = opts.scrollback;
     entry.ime.refresh();
     entry.fitAddon.fit();
+    if (Number.isFinite(entry.terminal.rows) && entry.terminal.rows > 0) {
+      entry.terminal.refresh(0, entry.terminal.rows - 1);
+    }
   }
 }

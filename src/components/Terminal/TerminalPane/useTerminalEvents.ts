@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "../../../lib/bridge";
 import { useAutocompleteStore } from "../../../stores/autocompleteStore";
 import { isMac } from "../../../lib/osUtils";
+import { logger } from "../../../lib/logger";
 import type { SearchBarHandle } from "../../SearchBar";
 
 /**
@@ -85,35 +86,108 @@ export function useSearchShortcut(
 /**
  * File drag-and-drop: write file paths to PTY.
  */
+const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg", ".ico", ".tiff", ".avif"]);
+export function isImagePath(path: string): boolean {
+  const dot = path.lastIndexOf(".");
+  return dot >= 0 && IMAGE_EXTS.has(path.slice(dot).toLowerCase());
+}
+
 export function useDragDrop(
   ptyId: string,
   isFocusedRef: React.RefObject<boolean>,
+  inputBarOpenRef?: React.RefObject<boolean>,
+  containerRef?: React.RefObject<HTMLElement | null>,
+  onImageDrop?: (paths: string[]) => void,
 ) {
   const [isDragOver, setIsDragOver] = useState(false);
 
+  // Stable reference so callers can pass an inline callback without forcing
+  // the drag-drop listener to re-register on every render. Re-registration is
+  // dangerous here because Tauri's `unlisten` resolves asynchronously — during
+  // the gap the new listener and the still-attached old listener both fire,
+  // doubling each drop (e.g. a screenshot path written to the PTY twice as
+  // `'P''P'`).
+  const onImageDropRef = useRef(onImageDrop);
+  useEffect(() => {
+    onImageDropRef.current = onImageDrop;
+  });
+
   useEffect(() => {
     if (!isTauri()) return;
+    // Race guard: Tauri's `unlisten` resolves asynchronously, so when the
+    // effect re-runs (HMR, pane remount, strict-mode double-invoke) the old
+    // listener can still fire one or more times between "cleanup requested"
+    // and "unregistered". Without this flag those late fires duplicate every
+    // drop — exactly what produced the intermittent `'P''P'` paste.
+    let active = true;
     const unlisten = getCurrentWebview().onDragDropEvent((event) => {
+      if (!active) return;
+      const hitTest = (pos: { x: number; y: number }) => {
+        const el = containerRef?.current;
+        // Don't fall back to isFocusedRef: in multi-pane layouts the focused pane
+        // would silently claim every drop while its containerRef briefly is null.
+        if (!el) return false;
+        const r = el.getBoundingClientRect();
+        const scale = window.devicePixelRatio || 1;
+        // Tauri may provide physical or logical pixels depending on platform/version.
+        // If pos exceeds the CSS viewport, treat as physical and divide by DPR.
+        const isPhysical = pos.x > window.innerWidth || pos.y > window.innerHeight;
+        const lx = isPhysical ? pos.x / scale : pos.x;
+        const ly = isPhysical ? pos.y / scale : pos.y;
+        return lx >= r.left && lx < r.right && ly >= r.top && ly < r.bottom;
+      };
+
       if (event.payload.type === "enter" || event.payload.type === "over") {
-        setIsDragOver(true);
+        setIsDragOver(hitTest(event.payload.position));
       } else if (event.payload.type === "leave") {
         setIsDragOver(false);
       } else if (event.payload.type === "drop") {
         setIsDragOver(false);
-        if (!isFocusedRef.current) return;
+        if (!hitTest(event.payload.position)) return;
+        // If input bar is open, check if drop landed on it — if so, skip (input bar handles it)
+        if (inputBarOpenRef?.current) {
+          const pos = event.payload.position;
+          const scale = window.devicePixelRatio || 1;
+          // Scope to this pane's container to avoid hitting another pane's input bar.
+          const barEl = containerRef?.current?.querySelector("[data-input-bar-container]");
+          if (barEl) {
+            const r = barEl.getBoundingClientRect();
+            const isPhysical = pos.x > window.innerWidth || pos.y > window.innerHeight;
+            const lx = isPhysical ? pos.x / scale : pos.x;
+            const ly = isPhysical ? pos.y / scale : pos.y;
+            if (lx >= r.left && lx < r.right && ly >= r.top && ly < r.bottom) return;
+          }
+        }
         const paths = event.payload.paths;
         if (!paths || paths.length === 0) return;
+
+        // Image files: route to input bar only when it's already visible.
+        // If the input bar is closed, treat images like any other file path (write to PTY).
+        if (onImageDropRef.current && inputBarOpenRef?.current) {
+          const images = paths.filter(isImagePath);
+          const others = paths.filter((p) => !isImagePath(p));
+          if (images.length > 0) onImageDropRef.current(images);
+          if (others.length === 0) return;
+          const quoted = others.map((p: string) => p.includes(" ") ? `'${p}'` : p);
+          const encoder = new TextEncoder();
+          invoke("write_to_pty", { paneId: ptyId, data: Array.from(encoder.encode(quoted.join(" "))) }).catch(logger.error);
+          return;
+        }
+
         const quoted = paths.map((p: string) =>
           p.includes(" ") ? `'${p}'` : p
         );
         const text = quoted.join(" ");
         const encoder = new TextEncoder();
         const bytes = Array.from(encoder.encode(text));
-        invoke("write_to_pty", { paneId: ptyId, data: bytes }).catch(console.error);
+        invoke("write_to_pty", { paneId: ptyId, data: bytes }).catch(logger.error);
       }
     });
-    return () => { unlisten.then((fn) => fn()); };
-  }, [ptyId, isFocusedRef]);
+    return () => {
+      active = false;
+      unlisten.then((fn) => fn());
+    };
+  }, [ptyId, isFocusedRef, inputBarOpenRef, containerRef]);
 
   return isDragOver;
 }

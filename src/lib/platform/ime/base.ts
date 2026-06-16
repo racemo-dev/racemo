@@ -6,6 +6,13 @@ import { logger } from "../../logger";
 
 export { KOREAN_REGEX };
 
+/**
+ * Marker attribute/dataset key for inputs that should bypass the IME interceptor
+ * (e.g. `TerminalInputBar`'s textarea). Kept as a shared constant to avoid typos.
+ */
+export const INPUT_BAR_DATA_ATTR = "data-input-bar";
+export const INPUT_BAR_DATASET_KEY = "inputBar";
+
 export interface IMEHandlers {
     onInput: (data: string) => void;
     onStart?: () => void;
@@ -112,20 +119,26 @@ export abstract class IMEInterceptorBase {
     private setupCaptureListeners() {
         const d = document;
 
-        const events = {
-            compositionstart: (e: Event) => this.handleCompositionStart(e as CompositionEvent),
-            compositionupdate: (e: Event) => this.handleCompositionUpdate(e as CompositionEvent),
-            compositionend: (e: Event) => this.handleCompositionEnd(e as CompositionEvent),
-            beforeinput: (e: Event) => this.handleBeforeInput(e as InputEvent),
-            input: (e: Event) => this.handleInput(e),
-            keydown: (e: Event) => this.handleKeyDown(e as KeyboardEvent),
+        // Skip events originating from non-xterm input elements (e.g. TerminalInputBar)
+        const guard = <T extends Event>(fn: (e: T) => void) => (e: Event) => {
+            const target = e.target as HTMLElement | null;
+            if (target?.dataset?.[INPUT_BAR_DATASET_KEY] !== undefined) return;
+            fn.call(this, e as T);
+        };
+        const events: Record<string, (e: Event) => void> = {
+            compositionstart: guard<CompositionEvent>(this.handleCompositionStart),
+            compositionupdate: guard<CompositionEvent>(this.handleCompositionUpdate),
+            compositionend: guard<CompositionEvent>(this.handleCompositionEnd),
+            beforeinput: guard<InputEvent>(this.handleBeforeInput),
+            input: guard(this.handleInput),
+            keydown: guard<KeyboardEvent>(this.handleKeyDown),
             blur: () => this.handleBlur(),
         };
 
+        // Arrow functions already have lexical `this`; no additional bind required.
         Object.entries(events).forEach(([event, handler]) => {
-            const bound = handler.bind(this);
-            this.boundListeners.set(event, bound);
-            d.addEventListener(event, bound, true);
+            this.boundListeners.set(event, handler);
+            d.addEventListener(event, handler, true);
         });
 
         // 마지막 wheel 시각 기록 (spurious composition guard용)

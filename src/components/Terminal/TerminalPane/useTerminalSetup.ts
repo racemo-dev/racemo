@@ -5,8 +5,8 @@ import { isTauri } from "../../../lib/bridge";
 import { useSessionStore } from "../../../stores/sessionStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { useBroadcastStore } from "../../../stores/broadcastStore";
-import { getOrCreateTerminal, getTerminal, disposeTerminal } from "../../../lib/terminalRegistry";
-import { flushPtyOutputBuffer, clearPtyOutputBuffer, suppressActivity } from "../../../lib/ptyOutputBuffer";
+import { getOrCreateTerminal, getTerminal, disposeTerminal, refreshTerminal } from "../../../lib/terminalRegistry";
+import { flushPtyOutputBuffer, clearPtyOutputBuffer, suppressActivity, hasPendingOutput } from "../../../lib/ptyOutputBuffer";
 import { onPromptStart, onCommandStart, onCommandEnd, onCommandText, getPendingCommandText, isCommandRunning, removeCommandState } from "../../../lib/commandTracker";
 import { useHistoryStore } from "../../../stores/historyStore";
 import { removeSilenceDetector } from "../../../lib/silenceDetector";
@@ -105,13 +105,13 @@ export function useTerminalSetup({
         const { enabled, selectedPtyIds } = useBroadcastStore.getState();
         if (enabled && selectedPtyIds.length > 0) {
           for (const targetPtyId of selectedPtyIds) {
-            invoke("write_to_pty", { paneId: targetPtyId, data: bytes }).catch(console.error);
+            invoke("write_to_pty", { paneId: targetPtyId, data: bytes }).catch(logger.error);
             if (targetPtyId !== ptyId) {
               window.dispatchEvent(new CustomEvent("racemo-broadcast-data", { detail: { ptyId: targetPtyId, data: text } }));
             }
           }
         } else {
-          invoke("write_to_pty", { paneId: ptyId, data: bytes }).catch(console.error);
+          invoke("write_to_pty", { paneId: ptyId, data: bytes }).catch(logger.error);
         }
       }
     });
@@ -204,6 +204,13 @@ export function useTerminalSetup({
         onPromptStart(ptyId);
         inputLineRef.current = "";
 
+        // Reset application cursor keys mode if a program (e.g. flutter run) left the
+        // terminal in DECCKM without restoring it on exit. Without this, UP arrow sends
+        // \x1bOA instead of \x1b[A and the shell echoes it as literal "^[OA".
+        if (term.modes.applicationCursorKeysMode) {
+          term.write("\x1b[?1l");
+        }
+
         // 명령 완료 후 탐색기 트리 새로고침 (파일 변경 반영)
         if (!firstPromptRef.current) {
           dirCacheInvalidateAll();
@@ -244,6 +251,7 @@ export function useTerminalSetup({
             onCommandText(ptyId, cmd);
           }
           lastCmdForErrorRef.current = cmd;
+          useSessionStore.getState().setPaneLastCommand(ptyId, cmd);
           const sid = getSessionId();
           invoke("set_pane_last_command", { sessionId: sid, paneId, command: cmd })
             .catch((e) => logger.warn("[last-cmd] save failed:", e));
@@ -384,13 +392,13 @@ export function useTerminalSetup({
       const { enabled, selectedPtyIds } = useBroadcastStore.getState();
       if (enabled && selectedPtyIds.length > 0) {
         for (const targetPtyId of selectedPtyIds) {
-          invoke("write_to_pty", { paneId: targetPtyId, data: bytes }).catch(console.error);
+          invoke("write_to_pty", { paneId: targetPtyId, data: bytes }).catch(logger.error);
           if (targetPtyId !== ptyId) {
             window.dispatchEvent(new CustomEvent("racemo-broadcast-data", { detail: { ptyId: targetPtyId, data } }));
           }
         }
       } else {
-        invoke("write_to_pty", { paneId: ptyId, data: bytes }).catch(console.error);
+        invoke("write_to_pty", { paneId: ptyId, data: bytes }).catch(logger.error);
       }
       ime.checkSmartToggle();
     });
@@ -411,6 +419,10 @@ export function useTerminalSetup({
       }
     });
 
+    // PTY 출력이 버퍼링되어 있었다면 = 서버에서 히스토리를 재전송한 경우(복원된 PTY).
+    // 이 신호를 flush 전에 캡처해서 아래 syncSize의 term.clear() 가드에 사용한다.
+    const isRestoredPty = hasPendingOutput(ptyId);
+
     // Flush any PTY output that arrived before this terminal was ready.
     flushPtyOutputBuffer(ptyId);
 
@@ -419,18 +431,30 @@ export function useTerminalSetup({
     let lastCols = isNewTerminal ? 0 : term.cols;
     const syncSize = () => {
       fitAddon.fit();
-      if (term.rows === lastRows && term.cols === lastCols) return;
+      // FitAddon proposeDimensions() can return NaN (xterm.js #4338, #4841).
+      // NaN < N evaluates to false, so use isFinite guard explicitly.
+      if (!Number.isFinite(term.rows) || !Number.isFinite(term.cols) || term.rows <= 0 || term.cols <= 0) {
+        return;
+      }
+      if (term.rows === lastRows && term.cols === lastCols) {
+        term.refresh(0, term.rows - 1);
+        return;
+      }
       const isInitial = lastRows === 0 && lastCols === 0;
       lastRows = term.rows;
       lastCols = term.cols;
       suppressActivity(ptyId);
       invoke("resize_pty", { paneId: ptyId, rows: term.rows, cols: term.cols })
         .then(() => {
-          if (isInitial && !lastCommand) {
+          // Clear ghost text overlays that retain old pixel positions after resize.
+          term.refresh(0, term.rows - 1);
+          // 신규 PTY(fresh)에서만 SIGWINCH 중복 프롬프트 제거를 위한 clear가 안전하다.
+          // 복원된 PTY(isRestoredPty)는 히스토리가 이미 버퍼에 들어와 있으므로 clear하면 안 된다.
+          if (isInitial && !lastCommand && !isRestoredPty) {
             setTimeout(() => term.clear(), 80);
           }
         })
-        .catch(console.error);
+        .catch(logger.error);
     };
 
     let fitAttempts = 0;
@@ -461,6 +485,7 @@ export function useTerminalSetup({
       if (document.visibilityState !== "visible") return;
       requestAnimationFrame(() => {
         if (container.clientWidth <= 0 || container.clientHeight <= 0) return;
+
         const canvases = container.querySelectorAll("canvas");
         canvases.forEach((canvas) => {
           (canvas as HTMLElement).style.transform = "translateZ(0)";
@@ -469,11 +494,24 @@ export function useTerminalSetup({
           canvases.forEach((canvas) => {
             (canvas as HTMLElement).style.transform = "";
           });
+          // Clear WebGL texture atlas and redraw after the compositor repaint,
+          // matching the original "force repaint → refresh glyph buffer" ordering.
+          refreshTerminal(ptyId);
         });
-        term.refresh(0, term.rows - 1);
       });
     };
     document.addEventListener("visibilitychange", handleVisibility);
+
+    // Also recover when the Electron window regains focus from another app.
+    // visibilitychange does not fire for app-level focus switches on macOS.
+    const handleWindowFocus = () => {
+      requestAnimationFrame(() => {
+        if (container.clientWidth > 0 && container.clientHeight > 0) {
+          refreshTerminal(ptyId);
+        }
+      });
+    };
+    window.addEventListener("focus", handleWindowFocus);
 
     let disposed = false;
 
@@ -506,7 +544,7 @@ export function useTerminalSetup({
                 setFocus(firstLeafId(nextSession.rootPane));
               }
             })
-            .catch(console.error);
+            .catch(logger.error);
         });
     });
 
@@ -516,6 +554,7 @@ export function useTerminalSetup({
       if (smartImeDebounce) clearTimeout(smartImeDebounce);
       resizeObserver.disconnect();
       document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", handleWindowFocus);
       titleDisposable.dispose();
       osc7Disposable.dispose();
       osc133Disposable.dispose();
