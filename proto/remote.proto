@@ -22,6 +22,8 @@ message RemoteMessage {
     ApiResponse api_response = 16;
     ResizePaneRequest resize_pane_request = 17;
     PtyResized pty_resized = 18;
+    PtyHistoryRequest pty_history_request = 19;
+    ApiStreamEvent api_stream_event = 20;
   }
 }
 
@@ -124,6 +126,11 @@ message PtyResized {
   uint32 rows = 3;
 }
 
+// Remote → Host: request PTY scroll-back history without affecting host PTY size
+message PtyHistoryRequest {
+  string pty_id = 1;
+}
+
 // Generic API request/response for Explorer and Git panel (tunneled over DC).
 // params_json / result_json carry JSON-encoded data to keep proto schema simple.
 message ApiRequest {
@@ -134,6 +141,30 @@ message ApiRequest {
 
 message ApiResponse {
   string request_id = 1;
-  string result_json = 2; // JSON-encoded result on success
+  string result_json = 2; // JSON-encoded result on success — for chunked responses, this is one chunk of the full result
   string error = 3;       // non-empty on failure
+  // Chunked-response support. WebRTC SCTP silently drops oversized messages
+  // on receivers (Android libwebrtc starts losing them around ~1 MB), so
+  // large `read_file` responses must be split.
+  //
+  //   chunk_total == 0  → legacy single-message response (backward compat)
+  //   chunk_total >= 1  → result_json is the chunk_seq-th chunk of total chunks
+  //
+  // Reassembly: client concatenates chunks in chunk_seq order; the assembled
+  // string is the JSON result. Errors are never chunked (chunk_total = 0).
+  uint32 chunk_seq = 4;
+  uint32 chunk_total = 5;
+}
+
+// Host -> Remote: incremental progress event for a streaming ApiRequest.
+// The matching `request_id` ties events to the outstanding request; when the
+// final ApiResponse for that request_id arrives the stream is considered
+// complete. `payload_json` is a method-specific JSON object - for
+// `git_ai_auto_commit_stream` it follows:
+//   { "kind": "tool_use", "name": str, "summary": str }
+//   { "kind": "text",     "text": str }
+//   { "kind": "step",     "label": str, "ok": bool }
+message ApiStreamEvent {
+  string request_id = 1;
+  string payload_json = 2;
 }

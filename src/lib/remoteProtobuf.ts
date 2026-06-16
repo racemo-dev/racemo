@@ -96,6 +96,14 @@ export function encodeClosePaneRequest(
   return RemoteMessage.encode(msg).finish();
 }
 
+/** Encode a PtyHistoryRequest message (request scroll-back without resizing host PTY). */
+export function encodePtyHistoryRequest(ptyId: string): Uint8Array {
+  const msg = RemoteMessage.create({
+    ptyHistoryRequest: { ptyId },
+  });
+  return RemoteMessage.encode(msg).finish();
+}
+
 export interface PaneLeaf {
   type: "leaf";
   id: string;

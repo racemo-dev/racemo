@@ -154,8 +154,7 @@ export function getHostPtySize(paneId: string): { rows: number; cols: number } |
 
 /**
  * Register a global listener for remote-pty-resized events.
- * PTY는 서버에서 min(호스트, 원격)으로 이미 resize됨 → 원격 xterm.js는 그 사이즈에 맞춤.
- * 단, 컨테이너보다 큰 사이즈로는 resize하지 않음 (호스트가 더 큰 경우 방지).
+ * 호스트가 로컬에서 PTY 크기를 바꿀 때 원격 xterm을 동기화. 컨테이너 크기 초과는 cap.
  */
 export function setupRemotePtyResizedListener(): Promise<() => void> {
   return listenRemote("remote-pty-resized", (raw) => {

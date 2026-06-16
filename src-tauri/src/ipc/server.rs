@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use parking_lot::Mutex;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 use crate::ipc::protocol::*;
 use crate::ipc::conpty::{pack_pty_size, unpack_pty_size};
+use crate::ipc::flow::PtyFlowControl;
 // Session에서 사용하는 레이아웃 타입 (crate::session 스코프)
 use crate::session::Session;
 use crate::persistence::{
@@ -27,10 +28,39 @@ struct PtyHandle {
     /// 자식 프로세스 핸들. Windows에서는 child watcher 스레드가 소유하므로 None.
     #[cfg(not(windows))]
     _child: Box<dyn portable_pty::Child + Send + Sync>,
-    /// PTY 출력 히스토리 (재연결 시 복원용, 최대 100KB)
+    /// PTY 메인 스크린 출력 히스토리 (재연결 시 스크롤백 복원용, 최대 1MB).
+    /// alt-screen(`\e[?1049h` 등) 진입/종료 시퀀스와 alt-screen 내용은 포함되지 않는다.
+    /// → vim/less/htop 등의 TUI 리드로우가 스크롤백을 잠식하지 않음.
     history: Arc<Mutex<Vec<u8>>>,
+    /// 현재 alt-screen 프레임 (재연결 시 TUI 화면 복원용, 최대 64KB).
+    /// alt-screen 진입 시 clear되고, alt-screen 내부 바이트만 누적.
+    alt_history: Arc<Mutex<Vec<u8>>>,
+    /// 마지막으로 본 PTY 상태가 alt-screen인지. replay 시 alt-screen 모드를 재설정할지 결정.
+    in_alt_screen: Arc<AtomicBool>,
     /// 현재 PTY 크기 (rows << 16 | cols), 리더 스레드와 공유.
     pty_size: Arc<AtomicU32>,
+}
+
+const HISTORY_MAX: usize = 1024 * 1024;
+const ALT_HISTORY_MAX: usize = 64 * 1024;
+
+/// replay 시 클라이언트에 보낼 히스토리 바이트를 구성한다.
+/// - 항상 메인 스크롤백(`history`)을 먼저 보낸다.
+/// - 현재 alt-screen 상태라면 `\e[?1049h`로 alt-screen 진입을 재현하고
+///   현재 alt 프레임을 이어 붙인다. 클라이언트는 TUI 앱이 그대로 보이는 상태가 된다.
+/// - 사용자가 TUI를 종료하면(`\e[?1049l` 라이브 수신) 클라이언트는 메인 스크린으로 돌아가며
+///   이때 메인 스크롤백을 그대로 볼 수 있다.
+fn build_replay_history(h: &PtyHandle) -> Vec<u8> {
+    let main = h.history.lock();
+    if !h.in_alt_screen.load(Ordering::Relaxed) {
+        return main.clone();
+    }
+    let alt = h.alt_history.lock();
+    let mut out = Vec::with_capacity(main.len() + alt.len() + 8);
+    out.extend_from_slice(&main);
+    out.extend_from_slice(b"\x1b[?1049h");
+    out.extend_from_slice(&alt);
+    out
 }
 
 /// 모든 세션과 PTY를 관리하는 서버 상태.
@@ -51,8 +81,8 @@ pub struct ServerState {
     file_watcher: Option<crate::ipc::file_watcher::FileWatcher>,
     /// 호스트 로컬 터미널이 요청한 PTY 사이즈 (pane_id → (rows, cols)).
     host_pty_sizes: HashMap<String, (u16, u16)>,
-    /// 원격 클라이언트가 요청한 PTY 사이즈 (pane_id → (rows, cols)).
-    remote_pty_sizes: HashMap<String, (u16, u16)>,
+    /// PTY 출력 흐름 제어 — 클라이언트 ack 기반으로 리더 스레드를 일시정지.
+    flow: Arc<PtyFlowControl>,
 }
 
 /// PowerShell OSC 133 쉘 통합 스크립트 (Windows 전용)
@@ -233,8 +263,13 @@ impl ServerState {
             pending_sessions: Vec::new(),
             file_watcher: watcher,
             host_pty_sizes: HashMap::new(),
-            remote_pty_sizes: HashMap::new(),
+            flow: Arc::new(PtyFlowControl::new()),
         }
+    }
+
+    /// 연결 핸들러와 공유하는 흐름 제어 핸들.
+    pub fn flow_control(&self) -> Arc<PtyFlowControl> {
+        self.flow.clone()
     }
 
     /// 새 PTY를 생성하고 (pty_id, detected_shell_type)를 반환.
@@ -371,6 +406,8 @@ impl ServerState {
             .map_err(|e| format!("Failed to clone PTY reader: {e}"))?;
 
         let history = Arc::new(Mutex::new(Vec::new()));
+        let alt_history = Arc::new(Mutex::new(Vec::new()));
+        let in_alt_screen = Arc::new(AtomicBool::new(false));
         let pty_size = Arc::new(AtomicU32::new(pack_pty_size(rows, cols)));
 
         // PtyExit 메시지 중복 방지 플래그 (리더 스레드 vs 자식 워처)
@@ -380,15 +417,28 @@ impl ServerState {
         let tx = self.broadcast_tx.clone();
         let reader_pty_id = pty_id.clone();
         let reader_history = history.clone();
+        let reader_alt_history = alt_history.clone();
+        let reader_in_alt = in_alt_screen.clone();
         let exit_sent_reader = exit_sent.clone();
         let reader_cwd_map = self.cwd_map.clone();
         let reader_cwd_dirty = self.cwd_dirty.clone();
+        let reader_flow = self.flow.clone();
         std::thread::spawn(move || {
             let mut buf = [0u8; 4096];
             // OSC 7 parser state for CWD tracking
             let mut in_osc7 = false;
             let mut osc_buf = Vec::new();
+            // OSC 133 parser state for command-completion tracking
+            let mut osc133_state = crate::ipc::osc133::Osc133State::default();
+            // alt-screen 토글 파서 상태 (smcup/rmcup 추적)
+            let mut alt_state = crate::ipc::alt_screen::AltScreenState::default();
+            // 가장 최근 133;C(명령 시작) 시각. 133;D 수신 시 경과 계산에 사용.
+            let mut command_start: Option<std::time::Instant> = None;
             loop {
+                // 클라이언트 소비 속도에 맞춘 backpressure: 미ack 바이트가
+                // 워터마크를 넘으면 여기서 멈춘다. read를 멈추면 PTY 커널
+                // 버퍼가 차면서 셸이 write에서 블록된다.
+                reader_flow.wait_capacity(&reader_pty_id);
                 match reader.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
@@ -401,24 +451,82 @@ impl ServerState {
                             reader_cwd_dirty.store(true, std::sync::atomic::Ordering::Relaxed);
                         }
 
-                        // 히스토리에 저장 (최대 100KB 제한)
-                        {
-                            let mut hist = reader_history.lock();
-                            hist.extend_from_slice(&data);
-                            if hist.len() > 100 * 1024 {
-                                let to_remove = hist.len() - (100 * 1024);
-                                hist.drain(0..to_remove);
+                        // OSC 133 파싱으로 명령 시작/종료 추적
+                        for ev in crate::ipc::osc133::parse_osc133_from_stream(&data, &mut osc133_state) {
+                            match ev {
+                                crate::ipc::osc133::Osc133Event::CommandStart => {
+                                    command_start = Some(std::time::Instant::now());
+                                }
+                                crate::ipc::osc133::Osc133Event::CommandFinished { exit_code } => {
+                                    let elapsed_ms = command_start
+                                        .take()
+                                        .map(|t| t.elapsed().as_millis() as u64)
+                                        .unwrap_or(0);
+                                    let _ = tx.send(ServerMessage::CommandFinished {
+                                        pane_id: reader_pty_id.clone(),
+                                        elapsed_ms,
+                                        exit_code,
+                                    });
+                                }
                             }
                         }
 
-                        let _ = tx.send(ServerMessage::PtyOutput {
-                            pane_id: reader_pty_id.clone(),
-                            data,
-                        });
+                        // alt-screen 토글 분리: 메인 스크롤백과 TUI 화면을 별도 버퍼에 보관.
+                        // vim/less/htop 같은 TUI 앱이 메인 스크롤백을 잠식하지 않게 한다.
+                        let split = crate::ipc::alt_screen::process_chunk(&data, &mut alt_state);
+                        if split.entered_alt {
+                            // alt-screen 진입 — 이전 프레임은 폐기하고 새 프레임을 받기 시작.
+                            reader_alt_history.lock().clear();
+                        }
+                        reader_in_alt.store(alt_state.in_alt_screen, Ordering::Relaxed);
+
+                        if !split.main_bytes.is_empty() {
+                            let mut hist = reader_history.lock();
+                            hist.extend_from_slice(&split.main_bytes);
+                            if hist.len() > HISTORY_MAX {
+                                let to_remove = hist.len() - HISTORY_MAX;
+                                // 다음 ESC 위치까지 전진해 시퀀스 중간 절단 방지
+                                let safe_cut = hist[to_remove..]
+                                    .iter()
+                                    .position(|&b| b == 0x1b)
+                                    .map(|p| to_remove + p)
+                                    .unwrap_or(to_remove);
+                                hist.drain(0..safe_cut);
+                            }
+                        }
+                        if !split.alt_bytes.is_empty() {
+                            let mut alt = reader_alt_history.lock();
+                            alt.extend_from_slice(&split.alt_bytes);
+                            if alt.len() > ALT_HISTORY_MAX {
+                                let to_remove = alt.len() - ALT_HISTORY_MAX;
+                                let safe_cut = alt[to_remove..]
+                                    .iter()
+                                    .position(|&b| b == 0x1b)
+                                    .map(|p| to_remove + p)
+                                    .unwrap_or(to_remove);
+                                alt.drain(0..safe_cut);
+                            }
+                        }
+
+                        let data_len = data.len();
+                        let sent = tx
+                            .send(ServerMessage::PtyOutput {
+                                pane_id: reader_pty_id.clone(),
+                                data,
+                            })
+                            .is_ok();
+                        // 흐름 제어 계측은 broadcast 시점에 수행 — 소켓 write
+                        // 시점 계측은 다운스트림이 막힐 때 함께 멈춰서 리더가
+                        // 워터마크에 도달하지 못한다 (수신자 없으면 미계측).
+                        if sent {
+                            reader_flow.on_broadcast(&reader_pty_id, data_len);
+                        }
                     }
                     Err(_) => break,
                 }
             }
+            // PTY 종료 — 흐름 제어 상태 정리 (잔여 미ack로 인한 누수 방지)
+            reader_flow.on_pty_closed(&reader_pty_id);
             // 자식 워처에서 이미 보내지 않았을 때만 PtyExit 전송
             if !exit_sent_reader.swap(true, Ordering::SeqCst) {
                 let _ = tx.send(ServerMessage::PtyExit {
@@ -465,6 +573,8 @@ impl ServerState {
                     writer,
                     master: pair.master,
                     history,
+                    alt_history,
+                    in_alt_screen,
                     pty_size,
                 },
             );
@@ -479,6 +589,8 @@ impl ServerState {
                     master: pair.master,
                     _child: child,
                     history,
+                    alt_history,
+                    in_alt_screen,
                     pty_size,
                 },
             );
@@ -509,50 +621,19 @@ impl ServerState {
         Ok(())
     }
 
-    /// 호스트 로컬 터미널의 resize 요청. min(호스트, 원격)으로 실제 PTY에 적용.
+    /// 호스트 로컬 터미널의 resize 요청. 호스트 사이즈를 그대로 PTY에 적용.
     pub fn resize_pty(&mut self, pane_id: &str, rows: u16, cols: u16) -> Result<(), String> {
         self.host_pty_sizes.insert(pane_id.to_string(), (rows, cols));
-        let (eff_rows, eff_cols) = self.effective_pty_size(pane_id);
-        let result = self.apply_pty_resize(pane_id, eff_rows, eff_cols);
-        // 호스트 요청 사이즈와 실제 적용 사이즈가 다르면 (원격 min 제한됨)
-        // apply_pty_resize가 early return(PTY 미변경)했어도 PtyResized를 보내서
-        // 호스트 로컬 xterm이 실제 PTY 사이즈에 맞게 동기화되도록 함.
-        if (rows, cols) != (eff_rows, eff_cols) {
-            let _ = self.broadcast_tx.send(ServerMessage::PtyResized {
-                pane_id: pane_id.to_string(),
-                rows: eff_rows,
-                cols: eff_cols,
-            });
-        }
-        result
+        self.apply_pty_resize(pane_id, rows, cols)
     }
 
-    /// 원격 클라이언트의 resize 요청. min(호스트, 원격)으로 실제 PTY에 적용.
-    pub fn resize_pty_remote(&mut self, pane_id: &str, rows: u16, cols: u16) -> Result<(), String> {
-        self.remote_pty_sizes.insert(pane_id.to_string(), (rows, cols));
-        let (eff_rows, eff_cols) = self.effective_pty_size(pane_id);
-        self.apply_pty_resize(pane_id, eff_rows, eff_cols)
+    /// 원격 클라이언트의 resize 요청. PTY는 호스트 기준으로 유지 — no-op.
+    pub fn resize_pty_remote(&mut self, _pane_id: &str, _rows: u16, _cols: u16) -> Result<(), String> {
+        Ok(())
     }
 
-    /// 모든 원격 PTY 사이즈를 제거하고 호스트 사이즈로 복원.
-    pub fn clear_all_remote_pty_sizes(&mut self) {
-        let pane_ids: Vec<String> = self.remote_pty_sizes.keys().cloned().collect();
-        for pane_id in pane_ids {
-            self.remote_pty_sizes.remove(&pane_id);
-            if let Some(&(rows, cols)) = self.host_pty_sizes.get(&pane_id) {
-                let _ = self.apply_pty_resize(&pane_id, rows, cols);
-            }
-        }
-    }
-
-    /// min(호스트, 원격) 계산. 원격이 없으면 호스트 사이즈 그대로.
-    fn effective_pty_size(&self, pane_id: &str) -> (u16, u16) {
-        let host = self.host_pty_sizes.get(pane_id).copied().unwrap_or((24, 80));
-        match self.remote_pty_sizes.get(pane_id) {
-            Some(&(rr, rc)) => (host.0.min(rr), host.1.min(rc)),
-            None => host,
-        }
-    }
+    /// 원격 PTY 사이즈 초기화 — no-op (호스트 기준 유지).
+    pub fn clear_all_remote_pty_sizes(&mut self) {}
 
     fn apply_pty_resize(&mut self, pane_id: &str, rows: u16, cols: u16) -> Result<(), String> {
         let handle = self.get_pty_mut(pane_id)?;
@@ -581,7 +662,19 @@ impl ServerState {
     }
 
     pub fn get_pty_history(&self, pty_id: &str) -> Option<Vec<u8>> {
-        self.ptys.get(pty_id).map(|h| h.history.lock().clone())
+        self.ptys.get(pty_id).map(build_replay_history)
+    }
+
+    /// Return size and (optionally) scroll-back history under a single lock acquisition.
+    pub fn get_pty_size_and_history(&self, pty_id: &str, fetch_history: bool) -> (Option<(u16, u16)>, Option<Vec<u8>>) {
+        match self.ptys.get(pty_id) {
+            Some(h) => {
+                let size = Some(unpack_pty_size(h.pty_size.load(Ordering::Relaxed)));
+                let history = if fetch_history { Some(build_replay_history(h)) } else { None };
+                (size, history)
+            }
+            None => (None, None),
+        }
     }
 
     /// Check if a pty_id is attached to any active session.
@@ -609,10 +702,28 @@ impl ServerState {
 
     pub fn kill_pty(&mut self, pty_id: &str) {
         log::info!("kill_pty: {pty_id}");
+        #[cfg(unix)]
+        if let Some(handle) = self.ptys.get_mut(pty_id) {
+            if let Some(pid) = handle._child.process_id() {
+                use nix::unistd::Pid;
+                use nix::sys::signal::{killpg, Signal};
+                // 셸 자식 프로세스 트리 전체를 먼저 kill (job control로 분리된 pgid 포함)
+                kill_descendant_process_groups(pid);
+                // 셸 자체 kill
+                match nix::unistd::getpgid(Some(Pid::from_raw(pid as i32))) {
+                    Ok(pgid) => {
+                        let _ = killpg(pgid, Signal::SIGTERM);
+                        log::info!("kill_pty: sent SIGTERM to process group {pgid} (pid {pid})");
+                    }
+                    Err(e) => log::warn!("kill_pty: getpgid({pid}) failed: {e}"),
+                }
+            }
+        }
         self.ptys.remove(pty_id);
         self.cwd_map.lock().remove(pty_id);
         self.host_pty_sizes.remove(pty_id);
-        self.remote_pty_sizes.remove(pty_id);
+        // 흐름 제어 상태 정리 — 일시정지 중이던 리더 스레드를 깨워 EOF로 종료시킨다.
+        self.flow.on_pty_closed(pty_id);
     }
 
     /// 현재 상태를 디스크에 영속화. 상태 변경 작업마다 호출.
@@ -788,6 +899,7 @@ impl ServerState {
                 }
                 ServerMessage::Ok
             }
+            ClientMessage::ListPaneProcesses => self.handle_list_pane_processes(),
             ClientMessage::Ping => ServerMessage::Pong,
             ClientMessage::Shutdown => {
                 log::info!("Shutdown requested");
@@ -805,6 +917,13 @@ impl ServerState {
                 ServerMessage::Error {
                     code: ErrorCode::InvalidOperation,
                     message: "Hosting messages must be handled async".to_string(),
+                }
+            }
+            ClientMessage::AckPtyOutput { .. } | ClientMessage::ResetPtyAcks => {
+                ServerMessage::Error {
+                    code: ErrorCode::InvalidOperation,
+                    message: "Flow control messages must be handled by the connection handler"
+                        .to_string(),
                 }
             }
         };
@@ -888,7 +1007,7 @@ impl ServerState {
         }
     }
 
-    fn handle_create_session(
+    pub fn handle_create_session(
         &mut self,
         name: Option<String>,
         working_dir: Option<String>,
@@ -905,6 +1024,10 @@ impl ServerState {
                 self.sessions.push(session);
                 self.persist();
                 let session = self.session_with_cwd(self.sessions.last().expect("just pushed"));
+                // Broadcast so the remote-host bridge can push UpdateSessions to the signaling server.
+                // Use a marker variant rather than re-broadcasting SessionCreated to avoid the
+                // duplicate landing in another pending request's reply slot on the IPC client.
+                let _ = self.broadcast_tx.send(ServerMessage::SessionListChanged);
                 ServerMessage::SessionCreated { session }
             }
             Err(e) => {
@@ -918,6 +1041,26 @@ impl ServerState {
         self.restore_pending_sessions();
         let sessions: Vec<Session> = self.sessions.iter().map(|s| self.session_with_cwd(s)).collect();
         ServerMessage::SessionList { sessions }
+    }
+
+    fn handle_list_pane_processes(&self) -> ServerMessage {
+        use crate::ipc::protocol::PaneChildInfo;
+        let mut panes = Vec::new();
+        for session in &self.sessions {
+            for pane_id in session.root_pane.pty_ids() {
+                #[cfg(not(windows))]
+                let child_pid = self.ptys.get(&pane_id).and_then(|h| h._child.process_id());
+                #[cfg(windows)]
+                let child_pid: Option<u32> = None;
+                panes.push(PaneChildInfo {
+                    pane_id,
+                    session_id: session.id.clone(),
+                    session_name: Some(session.name.clone()),
+                    child_pid,
+                });
+            }
+        }
+        ServerMessage::PaneChildPids { panes }
     }
 
     fn handle_attach_session(&mut self, session_id: String) -> ServerMessage {
@@ -934,7 +1077,7 @@ impl ServerState {
         }
     }
 
-    fn handle_close_session(&mut self, session_id: String) -> ServerMessage {
+    pub fn handle_close_session(&mut self, session_id: String) -> ServerMessage {
         let idx = self.sessions.iter().position(|s| s.id == session_id);
         match idx {
             Some(i) => {
@@ -946,6 +1089,8 @@ impl ServerState {
                 self.active_session_id = self.sessions.last().map(|s| s.id.clone());
                 self.persist();
                 let remaining = self.sessions.last().cloned();
+                // Broadcast so the remote-host bridge can push UpdateSessions to the signaling server.
+                let _ = self.broadcast_tx.send(ServerMessage::SessionListChanged);
                 ServerMessage::SessionClosed { remaining }
             }
             None => {
@@ -963,6 +1108,8 @@ impl ServerState {
             Some(session) => {
                 session.name = name;
                 self.persist();
+                // Broadcast so the remote-host bridge can push UpdateSessions to the signaling server.
+                let _ = self.broadcast_tx.send(ServerMessage::SessionListChanged);
                 ServerMessage::SessionRenamed
             }
             None => ServerMessage::Error {
@@ -1171,6 +1318,52 @@ impl ServerState {
     }
 }
 
+/// 셸(root_pid)의 모든 자손 프로세스를 BFS로 탐색하여 각 pgid에 SIGTERM을 전송.
+///
+/// 셸은 job control로 인해 자식 프로세스를 별도 pgid로 실행하므로,
+/// 셸 pgid만 kill하면 dev server 등 자식 프로세스가 살아남는다.
+/// 표준 터미널 에뮬레이터와 동일하게 팬 닫기 시 모든 자식 프로세스를 종료한다.
+#[cfg(unix)]
+fn kill_descendant_process_groups(root_pid: u32) {
+    use nix::unistd::Pid;
+    use nix::sys::signal::{killpg, Signal};
+
+    let Ok(output) = std::process::Command::new("ps")
+        .args(["-e", "-o", "pid=,ppid="])
+        .output()
+    else { return };
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut children: std::collections::HashMap<u32, Vec<u32>> = std::collections::HashMap::new();
+    for line in text.lines() {
+        let mut parts = line.split_whitespace();
+        if let (Some(pid_s), Some(ppid_s)) = (parts.next(), parts.next()) {
+            if let (Ok(pid), Ok(ppid)) = (pid_s.parse::<u32>(), ppid_s.parse::<u32>()) {
+                children.entry(ppid).or_default().push(pid);
+            }
+        }
+    }
+
+    let mut queue = std::collections::VecDeque::new();
+    if let Some(kids) = children.get(&root_pid) {
+        for &k in kids { queue.push_back(k); }
+    }
+
+    let mut killed_pgids = std::collections::HashSet::new();
+    while let Some(pid) = queue.pop_front() {
+        if let Some(kids) = children.get(&pid) {
+            for &k in kids { queue.push_back(k); }
+        }
+        let nix_pid = Pid::from_raw(pid as i32);
+        if let Ok(pgid) = nix::unistd::getpgid(Some(nix_pid)) {
+            if killed_pgids.insert(pgid) {
+                let _ = killpg(pgid, Signal::SIGTERM);
+                log::info!("kill_pty descendants: SIGTERM → pgid {pgid} (pid {pid})");
+            }
+        }
+    }
+}
+
 // ── 서버 생명주기 헬퍼 ──────────────────────────────────────────
 
 type RemoteHostManagerRef = Arc<TokioMutex<crate::remote::server_host::RemoteHostManager>>;
@@ -1184,7 +1377,9 @@ fn init_server() -> anyhow::Result<(
     let pid_path = pid_file_path();
     std::fs::write(&pid_path, std::process::id().to_string())?;
 
-    let (broadcast_tx, _) = broadcast::channel::<ServerMessage>(1024);
+    // 흐름 제어가 pane당 in-flight를 HIGH_WATERMARK(약 128청크)로 제한하므로
+    // 다중 pane 동시 출력에도 채널이 넘치지 않도록 여유 있게 잡는다.
+    let (broadcast_tx, _) = broadcast::channel::<ServerMessage>(4096);
     let state = Arc::new(Mutex::new(ServerState::new(broadcast_tx.clone())));
 
     // 영속 세션 로드 (첫 ListSessions 시 PTY 지연 생성)
@@ -1300,10 +1495,17 @@ async fn handle_client_io<R, W>(
     R: tokio::io::AsyncReadExt + Unpin,
     W: tokio::io::AsyncWriteExt + Unpin + Send + 'static,
 {
+    // 연결별 흐름 제어 식별자. 이 연결로 보낸 PTY 출력 바이트(on_sent)와
+    // 클라이언트의 소비 보고(on_ack)를 대응시킨다.
+    static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
+    let conn_id = NEXT_CONN_ID.fetch_add(1, Ordering::Relaxed);
+    let flow = state.lock().flow_control();
+    flow.register_conn(conn_id);
 
     // 브로드캐스트 메시지 (PtyOutput/PtyExit)를 이 클라이언트로 전달하는 태스크 생성.
     let writer = Arc::new(tokio::sync::Mutex::new(writer));
     let writer_for_broadcast = writer.clone();
+    let flow_for_broadcast = flow.clone();
 
     let broadcast_task = tokio::spawn(async move {
         loop {
@@ -1341,12 +1543,28 @@ async fn handle_client_io<R, W>(
                 Err(broadcast::error::RecvError::Closed) => break,
             }
         }
+        // 전송 태스크 종료 = 이 연결로 더는 출력이 가지 않음 — 미ack 잔량이
+        // 리더를 영구 정지시키지 않도록 등록 해제 (idempotent).
+        flow_for_broadcast.unregister_conn(conn_id);
     });
 
     // 클라이언트 메시지 수신 및 응답.
     loop {
         match read_frame::<_, ClientMessage>(&mut reader).await {
             Ok(Some(msg)) => {
+                // 흐름 제어 메시지는 고빈도 fire-and-forget — 상태 잠금 없이 즉시 처리.
+                match &msg {
+                    ClientMessage::AckPtyOutput { pane_id, bytes } => {
+                        flow.on_ack(conn_id, pane_id, *bytes as usize);
+                        continue;
+                    }
+                    ClientMessage::ResetPtyAcks => {
+                        log::info!("ResetPtyAcks received (conn {conn_id})");
+                        flow.reset_conn(conn_id);
+                        continue;
+                    }
+                    _ => {}
+                }
                 // WriteToPty/ResizePty는 클라이언트가 send()로 호출 (응답 불필요)
                 let is_fire_and_forget = matches!(
                     msg,
@@ -1406,25 +1624,41 @@ async fn handle_client_io<R, W>(
                     break;
                 }
 
-                // 세션 연결 시, 해당 PTY의 히스토리 출력 전송.
-                if let ServerMessage::SessionAttached { session } = &response {
-                    let pty_ids = session.root_pane.pty_ids();
-                    for pty_id in pty_ids {
+                // 세션 연결 시, 모든 세션의 PTY 히스토리 출력 전송.
+                // (Attach 대상 세션뿐 아니라 다른 탭들의 히스토리도 함께 보내야,
+                //  프론트 재시작 후 비활성 탭을 클릭했을 때 빈 화면이 보이지 않는다.)
+                if matches!(response, ServerMessage::SessionAttached { .. }) {
+                    let all_pty_ids: Vec<String> = {
+                        let s = state.lock();
+                        s.sessions
+                            .iter()
+                            .flat_map(|sess| sess.root_pane.pty_ids())
+                            .collect()
+                    };
+                    let mut send_failed = false;
+                    for pty_id in all_pty_ids {
                         let history = {
                             let s = state.lock();
                             s.get_pty_history(&pty_id)
                         };
                         if let Some(data) = history {
                             if !data.is_empty() {
+                                let data_len = data.len();
                                 let history_msg = ServerMessage::PtyOutput {
-                                    pane_id: pty_id,
+                                    pane_id: pty_id.clone(),
                                     data,
                                 };
                                 if write_frame(&mut *w, &history_msg).await.is_err() {
+                                    send_failed = true;
                                     break;
                                 }
+                                // replay도 클라이언트가 ack하므로 동일하게 계측.
+                                flow.on_sent(conn_id, &pty_id, data_len);
                             }
                         }
+                    }
+                    if send_failed {
+                        break;
                     }
                 }
 
@@ -1438,13 +1672,16 @@ async fn handle_client_io<R, W>(
                         };
                         if let Some(data) = history {
                             if !data.is_empty() {
+                                let data_len = data.len();
                                 let history_msg = ServerMessage::PtyOutput {
-                                    pane_id: pty_id,
+                                    pane_id: pty_id.clone(),
                                     data,
                                 };
                                 if write_frame(&mut *w, &history_msg).await.is_err() {
                                     break;
                                 }
+                                // replay도 클라이언트가 ack하므로 동일하게 계측.
+                                flow.on_sent(conn_id, &pty_id, data_len);
                             }
                         }
                     }
@@ -1461,6 +1698,8 @@ async fn handle_client_io<R, W>(
         }
     }
 
+    // 연결 종료 — 이 연결의 미ack 잔량을 무효화해 리더 영구 정지를 방지.
+    flow.unregister_conn(conn_id);
     broadcast_task.abort();
 }
 
@@ -1521,69 +1760,6 @@ mod resize_tests {
         (ServerState::new(tx), rx)
     }
 
-    // --- effective_pty_size 단위 테스트 ---
-
-    #[test]
-    fn effective_size_defaults_when_no_entries() {
-        let (state, _rx) = make_state();
-        // 아무 엔트리도 없으면 기본값 (24, 80)
-        assert_eq!(state.effective_pty_size("pty-0"), (24, 80));
-    }
-
-    #[test]
-    fn effective_size_returns_host_when_no_remote() {
-        let (mut state, _rx) = make_state();
-        state.host_pty_sizes.insert("pty-0".into(), (50, 200));
-        // 원격 없으면 호스트 사이즈 그대로
-        assert_eq!(state.effective_pty_size("pty-0"), (50, 200));
-    }
-
-    #[test]
-    fn effective_size_returns_min_of_host_and_remote() {
-        let (mut state, _rx) = make_state();
-        state.host_pty_sizes.insert("pty-0".into(), (50, 200));
-        state.remote_pty_sizes.insert("pty-0".into(), (24, 80));
-        // min(50,24)=24, min(200,80)=80
-        assert_eq!(state.effective_pty_size("pty-0"), (24, 80));
-    }
-
-    #[test]
-    fn effective_size_min_per_dimension() {
-        let (mut state, _rx) = make_state();
-        // 호스트 rows 작고 원격 cols 작은 경우 → 각 차원별 min
-        state.host_pty_sizes.insert("pty-0".into(), (20, 200));
-        state.remote_pty_sizes.insert("pty-0".into(), (40, 80));
-        assert_eq!(state.effective_pty_size("pty-0"), (20, 80));
-    }
-
-    #[test]
-    fn effective_size_remote_equal_to_host() {
-        let (mut state, _rx) = make_state();
-        state.host_pty_sizes.insert("pty-0".into(), (30, 100));
-        state.remote_pty_sizes.insert("pty-0".into(), (30, 100));
-        assert_eq!(state.effective_pty_size("pty-0"), (30, 100));
-    }
-
-    #[test]
-    fn effective_size_remote_larger_than_host() {
-        let (mut state, _rx) = make_state();
-        state.host_pty_sizes.insert("pty-0".into(), (24, 80));
-        state.remote_pty_sizes.insert("pty-0".into(), (50, 200));
-        // min → 호스트가 더 작으므로 호스트 사이즈
-        assert_eq!(state.effective_pty_size("pty-0"), (24, 80));
-    }
-
-    #[test]
-    fn effective_size_independent_per_pane() {
-        let (mut state, _rx) = make_state();
-        state.host_pty_sizes.insert("pty-0".into(), (50, 200));
-        state.host_pty_sizes.insert("pty-1".into(), (30, 120));
-        state.remote_pty_sizes.insert("pty-0".into(), (24, 80));
-        // pty-0: min 적용, pty-1: 원격 없으므로 호스트 그대로
-        assert_eq!(state.effective_pty_size("pty-0"), (24, 80));
-        assert_eq!(state.effective_pty_size("pty-1"), (30, 120));
-    }
-
     // --- resize_pty / resize_pty_remote 사이즈 맵 테스트 ---
 
     #[test]
@@ -1595,71 +1771,16 @@ mod resize_tests {
         assert_eq!(state.host_pty_sizes.get("pty-0"), Some(&(50, 200)));
     }
 
-    #[test]
-    fn resize_pty_remote_updates_remote_sizes() {
-        let (mut state, _rx) = make_state();
-        let _ = state.resize_pty_remote("pty-0", 24, 80);
-        assert_eq!(state.remote_pty_sizes.get("pty-0"), Some(&(24, 80)));
-    }
-
-    #[test]
-    fn resize_pty_remote_then_effective_uses_min() {
-        let (mut state, _rx) = make_state();
-        state.host_pty_sizes.insert("pty-0".into(), (50, 200));
-        let _ = state.resize_pty_remote("pty-0", 24, 80);
-        assert_eq!(state.effective_pty_size("pty-0"), (24, 80));
-    }
-
-    // --- clear_all_remote_pty_sizes 테스트 ---
-
-    #[test]
-    fn clear_remote_sizes_restores_host_effective() {
-        let (mut state, _rx) = make_state();
-        state.host_pty_sizes.insert("pty-0".into(), (50, 200));
-        state.remote_pty_sizes.insert("pty-0".into(), (24, 80));
-        assert_eq!(state.effective_pty_size("pty-0"), (24, 80));
-
-        state.clear_all_remote_pty_sizes();
-        // 원격 해제 후 호스트 사이즈로 복원
-        assert_eq!(state.effective_pty_size("pty-0"), (50, 200));
-        assert!(state.remote_pty_sizes.is_empty());
-    }
-
-    #[test]
-    fn clear_remote_sizes_clears_all_panes() {
-        let (mut state, _rx) = make_state();
-        state.host_pty_sizes.insert("pty-0".into(), (50, 200));
-        state.host_pty_sizes.insert("pty-1".into(), (30, 120));
-        state.remote_pty_sizes.insert("pty-0".into(), (24, 80));
-        state.remote_pty_sizes.insert("pty-1".into(), (20, 60));
-
-        state.clear_all_remote_pty_sizes();
-        assert!(state.remote_pty_sizes.is_empty());
-        assert_eq!(state.effective_pty_size("pty-0"), (50, 200));
-        assert_eq!(state.effective_pty_size("pty-1"), (30, 120));
-    }
-
     // --- PtyResized broadcast 테스트 (실제 PTY 사용) ---
 
     #[test]
-    fn resize_pty_remote_broadcasts_pty_resized() {
+    fn resize_pty_remote_no_broadcast() {
         let (mut state, mut rx) = make_state();
-        // 실제 PTY를 생성하여 resize + broadcast 검증
         let (pty_id, _) = state.spawn_pty(50, 200, None, None).unwrap();
 
-        // 원격 클라이언트가 더 작은 사이즈 요청
+        // 원격 resize는 no-op — PTY 리사이즈/broadcast 없음
         state.resize_pty_remote(&pty_id, 24, 80).unwrap();
-
-        // broadcast 수신 확인
-        let msg = rx.try_recv().unwrap();
-        match msg {
-            ServerMessage::PtyResized { pane_id, rows, cols } => {
-                assert_eq!(pane_id, pty_id);
-                assert_eq!(rows, 24);
-                assert_eq!(cols, 80);
-            }
-            other => panic!("Expected PtyResized, got {:?}", other),
-        }
+        assert!(rx.try_recv().is_err());
     }
 
     #[test]
@@ -1667,37 +1788,30 @@ mod resize_tests {
         let (mut state, mut rx) = make_state();
         let (pty_id, _) = state.spawn_pty(24, 80, None, None).unwrap();
 
-        // 원격이 호스트와 같은 사이즈 요청 → PTY 사이즈 변경 없음
         state.resize_pty_remote(&pty_id, 24, 80).unwrap();
-
-        // broadcast 없어야 함
         assert!(rx.try_recv().is_err());
     }
 
     #[test]
-    fn host_resize_after_remote_keeps_min_and_broadcasts() {
+    fn host_resize_after_remote_uses_host_size() {
         let (mut state, mut rx) = make_state();
         let (pty_id, _) = state.spawn_pty(50, 200, None, None).unwrap();
 
-        // 1. 원격 연결 → min(50,24)=24, min(200,80)=80
+        // 원격 뷰포트 저장 (PTY 변경 없음)
         state.resize_pty_remote(&pty_id, 24, 80).unwrap();
-        let _ = rx.try_recv(); // 첫 broadcast 소비
+        assert!(rx.try_recv().is_err());
 
-        // 2. 호스트 fitAddon.fit() → resize_pty(60, 150)
-        //    effective = min(60,24)=24, min(150,80)=80 → PTY 미변경
-        //    하지만 요청(60,150) ≠ effective(24,80)이므로 PtyResized broadcast 발생
+        // 호스트 resize → 호스트 사이즈 그대로 적용
         state.resize_pty(&pty_id, 60, 150).unwrap();
-
         let msg = rx.try_recv().unwrap();
         match msg {
             ServerMessage::PtyResized { pane_id, rows, cols } => {
                 assert_eq!(pane_id, pty_id);
-                assert_eq!(rows, 24);
-                assert_eq!(cols, 80);
+                assert_eq!(rows, 60);
+                assert_eq!(cols, 150);
             }
             other => panic!("Expected PtyResized, got {:?}", other),
         }
-        assert_eq!(state.effective_pty_size(&pty_id), (24, 80));
     }
 
     #[test]
@@ -1719,6 +1833,98 @@ mod resize_tests {
         }
         // 추가 broadcast 없음
         assert!(rx.try_recv().is_err());
+    }
+}
+
+/// Broadcast tests for the session lifecycle handlers.
+/// These guarantee the remote-host bridge gets notified on every session
+/// create/close/rename so it can push UpdateSessions to the signaling server.
+#[cfg(test)]
+mod session_broadcast_tests {
+    use super::*;
+    use crate::layout::PaneNode;
+    use crate::session::Session;
+
+    fn make_state() -> (ServerState, broadcast::Receiver<ServerMessage>) {
+        let (tx, rx) = broadcast::channel(16);
+        (ServerState::new(tx), rx)
+    }
+
+    fn make_leaf(pane_id: &str, pty_id: &str) -> PaneNode {
+        PaneNode::Leaf {
+            id: pane_id.to_string(),
+            pty_id: pty_id.to_string(),
+            shell: None,
+            cwd: None,
+            last_command: None,
+        }
+    }
+
+    fn push_session(state: &mut ServerState, id: &str, name: &str, pty_id: &str) {
+        state.sessions.push(Session {
+            id: id.to_string(),
+            name: name.to_string(),
+            root_pane: make_leaf(&format!("pane-{id}"), pty_id),
+            pane_count: 1,
+            created_at: 0,
+        });
+    }
+
+    /// Drain one message from the broadcast receiver — panics if the channel
+    /// has nothing waiting (the call sites all expect a single broadcast).
+    fn next_relevant(rx: &mut broadcast::Receiver<ServerMessage>) -> ServerMessage {
+        match rx.try_recv() {
+            Ok(msg) => msg,
+            Err(broadcast::error::TryRecvError::Empty) => {
+                panic!("expected a broadcast message but channel was empty");
+            }
+            Err(e) => panic!("broadcast recv failed: {e:?}"),
+        }
+    }
+
+    #[test]
+    fn rename_broadcasts_session_list_changed() {
+        let (mut state, mut rx) = make_state();
+        push_session(&mut state, "s1", "old", "pty-1");
+
+        let resp = state.handle_rename_session("s1".into(), "new".into());
+        assert!(matches!(resp, ServerMessage::SessionRenamed));
+        assert!(matches!(next_relevant(&mut rx), ServerMessage::SessionListChanged));
+        // The direct response is delivered out-of-band — only the broadcast hits this rx.
+        assert!(rx.try_recv().is_err(), "no further broadcast expected");
+    }
+
+    #[test]
+    fn rename_missing_session_does_not_broadcast() {
+        let (mut state, mut rx) = make_state();
+        let resp = state.handle_rename_session("nope".into(), "x".into());
+        assert!(matches!(resp, ServerMessage::Error { .. }));
+        assert!(rx.try_recv().is_err(), "no broadcast on error");
+    }
+
+    #[test]
+    fn close_broadcasts_session_list_changed() {
+        let (mut state, mut rx) = make_state();
+        push_session(&mut state, "s1", "a", "pty-1");
+        push_session(&mut state, "s2", "b", "pty-2");
+
+        let resp = state.handle_close_session("s1".into());
+        match resp {
+            ServerMessage::SessionClosed { remaining } => {
+                assert_eq!(remaining.expect("s2 remains").id, "s2");
+            }
+            other => panic!("Expected SessionClosed, got {other:?}"),
+        }
+        assert!(matches!(next_relevant(&mut rx), ServerMessage::SessionListChanged));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn close_missing_session_does_not_broadcast() {
+        let (mut state, mut rx) = make_state();
+        let resp = state.handle_close_session("nope".into());
+        assert!(matches!(resp, ServerMessage::Error { .. }));
+        assert!(rx.try_recv().is_err(), "no broadcast on error");
     }
 }
 

@@ -3,6 +3,7 @@ use crate::ipc::protocol::{ClientMessage, ServerMessage, ShellType};
 use crate::layout::SplitDirection;
 use crate::session::Session;
 use super::{ipc, IpcState};
+use serde::{Deserialize, Serialize};
 
 /// Helper: extract Session from ServerMessage or return error.
 fn extract_session(msg: ServerMessage) -> Result<Session, String> {
@@ -214,6 +215,26 @@ pub async fn write_to_pty(
         .await
 }
 
+/// PTY 출력 소비 완료 ack — 서버 흐름 제어에 크레딧 반환 (fire-and-forget).
+#[tauri::command]
+pub async fn ack_pty_output(
+    pane_id: String,
+    bytes: u64,
+    state: State<'_, IpcState>,
+) -> Result<(), String> {
+    let client = ipc(&state).await?;
+    client
+        .send(ClientMessage::AckPtyOutput { pane_id, bytes })
+        .await
+}
+
+/// 이 연결의 미ack 카운터 전체 리셋 — 웹뷰 리로드 후 영구 일시정지 방지.
+#[tauri::command]
+pub async fn reset_pty_acks(state: State<'_, IpcState>) -> Result<(), String> {
+    let client = ipc(&state).await?;
+    client.send(ClientMessage::ResetPtyAcks).await
+}
+
 /// Resize the PTY terminal dimensions.
 #[tauri::command]
 pub async fn resize_pty(
@@ -328,4 +349,159 @@ pub async fn set_pane_last_command(
         .request(ClientMessage::SetPaneLastCommand { session_id, pane_id, command })
         .await?;
     Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaneProcessInfo {
+    pub pane_id: String,
+    pub session_id: String,
+    pub session_name: Option<String>,
+    pub pid: u32,
+    pub command: String,
+    pub ports: Vec<u16>,
+}
+
+/// List all processes with listening ports that are descendants of any active pane's shell.
+#[tauri::command]
+pub async fn list_pane_processes(state: State<'_, IpcState>) -> Result<Vec<PaneProcessInfo>, String> {
+    let client = ipc(&state).await?;
+    let msg = client.request(ClientMessage::ListPaneProcesses).await?;
+    let panes = match msg {
+        ServerMessage::PaneChildPids { panes } => panes,
+        ServerMessage::Error { message, .. } => return Err(message),
+        other => return Err(format!("Unexpected response: {other:?}")),
+    };
+
+    #[cfg(unix)]
+    {
+        // `ps`/`lsof` are blocking syscalls; offload off the tokio runtime worker.
+        tokio::task::spawn_blocking(move || scan_pane_processes(panes))
+            .await
+            .map_err(|e| format!("scan task join failed: {e}"))?
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = panes;
+        Ok(vec![])
+    }
+}
+
+#[cfg(unix)]
+fn scan_pane_processes(
+    panes: Vec<crate::ipc::protocol::PaneChildInfo>,
+) -> Result<Vec<PaneProcessInfo>, String> {
+    // Build pid→ppid map from `ps` output
+    let ps_out = std::process::Command::new("ps")
+        .args(["-e", "-o", "pid=,ppid=,comm="])
+        .output()
+        .map_err(|e| format!("ps failed: {e}"))?;
+    let ps_str = String::from_utf8_lossy(&ps_out.stdout);
+
+    let mut pid_to_ppid: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+    let mut pid_to_comm: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
+    for line in ps_str.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 3 {
+            if let (Ok(pid), Ok(ppid)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
+                pid_to_ppid.insert(pid, ppid);
+                pid_to_comm.insert(pid, parts[2..].join(" "));
+            }
+        }
+    }
+
+    // Build children map
+    let mut children: std::collections::HashMap<u32, Vec<u32>> = std::collections::HashMap::new();
+    for (&pid, &ppid) in &pid_to_ppid {
+        children.entry(ppid).or_default().push(pid);
+    }
+
+    // BFS to find all descendants of a given root PID
+    let descendants = |root: u32| -> Vec<u32> {
+        let mut result = Vec::new();
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(root);
+        while let Some(pid) = queue.pop_front() {
+            if pid != root {
+                result.push(pid);
+            }
+            if let Some(kids) = children.get(&pid) {
+                for &kid in kids {
+                    queue.push_back(kid);
+                }
+            }
+        }
+        result
+    };
+
+    // Get all listening TCP ports via lsof
+    let lsof_out = std::process::Command::new("lsof")
+        .args(["-iTCP", "-sTCP:LISTEN", "-n", "-P", "-F", "pcn"])
+        .output()
+        .map_err(|e| format!("lsof failed: {e}"))?;
+    let lsof_str = String::from_utf8_lossy(&lsof_out.stdout);
+
+    // Parse lsof -F output: p<pid>\nc<cmd>\nn<addr:port>
+    let mut pid_ports: std::collections::HashMap<u32, Vec<u16>> = std::collections::HashMap::new();
+    let mut cur_pid: Option<u32> = None;
+    for line in lsof_str.lines() {
+        if let Some(rest) = line.strip_prefix('p') {
+            cur_pid = rest.parse::<u32>().ok();
+        } else if line.starts_with('n') {
+            if let Some(pid) = cur_pid {
+                // Format: *:3000 or 127.0.0.1:3000
+                if let Some(port_str) = line.rsplit(':').next() {
+                    if let Ok(port) = port_str.parse::<u16>() {
+                        pid_ports.entry(pid).or_default().push(port);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut result = Vec::new();
+    for pane in panes {
+        let Some(shell_pid) = pane.child_pid else { continue };
+        let desc = descendants(shell_pid);
+        for pid in desc {
+            let ports = pid_ports.get(&pid).cloned().unwrap_or_default();
+            if ports.is_empty() {
+                continue;
+            }
+            result.push(PaneProcessInfo {
+                pane_id: pane.pane_id.clone(),
+                session_id: pane.session_id.clone(),
+                session_name: pane.session_name.clone(),
+                pid,
+                command: pid_to_comm.get(&pid).cloned().unwrap_or_default(),
+                ports,
+            });
+        }
+    }
+    Ok(result)
+}
+
+/// Send SIGTERM to a process by PID. If the PID is its own process-group leader
+/// (i.e. the shell put it in a dedicated job), signal the whole group so worker
+/// children die with it. Otherwise the pgid would equal the shell's pgid and
+/// `killpg` would take down the user's interactive shell.
+#[tauri::command]
+pub fn kill_pane_process(pid: u32) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use nix::sys::signal::{kill, killpg, Signal};
+        use nix::unistd::Pid;
+        let nix_pid = Pid::from_raw(pid as i32);
+        match nix::unistd::getpgid(Some(nix_pid)) {
+            Ok(pgid) if pgid == nix_pid => killpg(pgid, Signal::SIGTERM)
+                .map_err(|e| format!("killpg failed: {e}")),
+            _ => kill(nix_pid, Signal::SIGTERM)
+                .map_err(|e| format!("kill failed: {e}")),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        Err("kill_pane_process not supported on this platform".to_string())
+    }
 }

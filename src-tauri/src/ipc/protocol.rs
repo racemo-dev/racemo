@@ -111,6 +111,21 @@ pub enum ClientMessage {
         dirs: Vec<String>,
         editor_file: Option<String>,
     },
+
+    /// List all active pane child PIDs (for process/server monitoring).
+    ListPaneProcesses,
+
+    // NOTE: rmp_serde는 variant 인덱스로 enum을 인코딩하므로,
+    // 구버전 호환을 위해 새 variant는 반드시 enum 끝에만 추가한다.
+    /// PTY 출력 소비 완료 ack — 흐름 제어 크레딧 반환.
+    /// 클라이언트 xterm이 파싱을 마친 바이트 수를 보고한다.
+    AckPtyOutput {
+        pane_id: String,
+        bytes: u64,
+    },
+    /// 이 연결의 미ack 카운터 전체 리셋.
+    /// 웹뷰 리로드 등으로 ack가 유실됐을 때 서버가 영구 일시정지하는 것을 방지.
+    ResetPtyAcks,
 }
 
 // ── Server → Client messages ────────────────────────────────────
@@ -137,6 +152,13 @@ pub enum ServerMessage {
     SessionUpdated {
         session: Session,
     },
+    /// Broadcast-only marker emitted on session create/close/rename so internal
+    /// listeners (e.g. the remote-host bridge that pushes UpdateSessions to the
+    /// signaling server) can react to changes in the session list. This variant
+    /// MUST NOT be returned as a direct request response — it is filtered out
+    /// of the IPC client's response queue. Carries no payload because consumers
+    /// re-read `ServerState.sessions` themselves.
+    SessionListChanged,
     /// Direct response to SplitPane/ClosePane/ResizePane requests (not broadcast).
     SessionModified {
         session: Session,
@@ -149,6 +171,15 @@ pub enum ServerMessage {
     },
     PtyExit {
         pane_id: String,
+    },
+    /// 셸의 OSC 133;C → 133;D 사이에서 측정된 명령 1회의 종료 알림.
+    /// 푸시 알림 디스패처가 임계값 비교 후 OS/모바일 알림으로 변환한다.
+    CommandFinished {
+        pane_id: String,
+        elapsed_ms: u64,
+        /// 셸이 제공한 exit code. zsh/bash/fish/PowerShell 모두 우리가 주입한 훅에서
+        /// 항상 값을 보내지만, 호환성을 위해 Optional.
+        exit_code: Option<i32>,
     },
 
     // Errors
@@ -216,6 +247,19 @@ pub enum ServerMessage {
         rows: u16,
         cols: u16,
     },
+
+    /// Response to ListPaneProcesses — each active pane's shell PID.
+    PaneChildPids {
+        panes: Vec<PaneChildInfo>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaneChildInfo {
+    pub pane_id: String,
+    pub session_id: String,
+    pub session_name: Option<String>,
+    pub child_pid: Option<u32>,
 }
 
 /// A single file system change event.

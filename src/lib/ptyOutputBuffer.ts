@@ -1,4 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { getTerminal } from "./terminalRegistry";
 import { onPtyOutput } from "./silenceDetector";
 import { useSessionStore } from "../stores/sessionStore";
@@ -25,6 +26,39 @@ interface PtyOutputPayload {
  */
 const pending = new Map<string, number[][]>();
 const decoder = new TextDecoder();
+
+/** 미마운트 pane의 pending 버퍼 총량 상한 — 초과 시 가장 오래된 청크부터 폐기. */
+const PENDING_MAX_BYTES = 4 * 1024 * 1024;
+/** pane별 pending 버퍼 누적 바이트. */
+const pendingBytes = new Map<string, number>();
+/** 상한 초과로 폐기가 발생한 pane (경고 1회 로깅용). */
+const pendingDropped = new Set<string>();
+
+/**
+ * PTY 출력 소비 완료 ack — 서버 흐름 제어에 크레딧 반환.
+ * pane별로 누적했다가 매크로태스크당 1회만 invoke하여 IPC 오버헤드를 줄인다.
+ * 수신한 각 청크는 정확히 1회만 ack한다 (마운트 시 write 콜백, 미마운트 시 수신 즉시).
+ */
+const ackPending = new Map<string, number>();
+let ackFlushScheduled = false;
+
+function queueAck(paneId: string, bytes: number) {
+  if (bytes <= 0) return;
+  ackPending.set(paneId, (ackPending.get(paneId) ?? 0) + bytes);
+  if (!ackFlushScheduled) {
+    ackFlushScheduled = true;
+    setTimeout(flushAcks, 0);
+  }
+}
+
+function flushAcks() {
+  ackFlushScheduled = false;
+  for (const [paneId, bytes] of ackPending) {
+    // IPC 미연결 시 무해하게 실패 — 연결이 없으면 서버 카운터도 없다.
+    invoke("ack_pty_output", { paneId, bytes }).catch(() => {});
+  }
+  ackPending.clear();
+}
 
 /** Debounce timers for activity cooldown per PTY. */
 const activityTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -113,7 +147,13 @@ export function setupPtyOutputListener(): Promise<() => void> {
 
     const entry = getTerminal(pane_id);
     if (entry) {
-      writeToTerminal(entry.terminal, text);
+      // xterm이 이 청크 파싱을 마친 시점에 소비 완료 ack (흐름 제어 크레딧 반환).
+      // text가 빈 문자열이면(UTF-8 경계 대기) write를 거치지 않고 즉시 ack.
+      if (text.length === 0) {
+        queueAck(pane_id, data.length);
+      } else {
+        writeToTerminal(entry.terminal, text, () => queueAck(pane_id, data.length));
+      }
     } else {
       // Terminal not ready yet — buffer the data
       let buf = pending.get(pane_id);
@@ -122,13 +162,33 @@ export function setupPtyOutputListener(): Promise<() => void> {
         pending.set(pane_id, buf);
       }
       buf.push(data);
+      // 미마운트 pane은 수신 즉시 ack — 백그라운드 PTY가 흐름 제어로 막히지 않게 한다.
+      // (flush 시에는 다시 ack하지 않음 — 청크당 1회 ack 원칙)
+      queueAck(pane_id, data.length);
+      // 메모리 상한 유지: 초과분은 가장 오래된 청크부터 폐기.
+      let total = (pendingBytes.get(pane_id) ?? 0) + data.length;
+      while (total > PENDING_MAX_BYTES && buf.length > 0) {
+        total -= buf.shift()!.length;
+        if (!pendingDropped.has(pane_id)) {
+          pendingDropped.add(pane_id);
+          logger.warn("[pty-output] pending buffer cap exceeded, dropping oldest output for", pane_id);
+        }
+      }
+      pendingBytes.set(pane_id, total);
     }
+  }).then((unlisten) => {
+    // 리스너 등록 직후 이 연결의 서버측 미ack 카운터 리셋 — 웹뷰 리로드로
+    // ack가 끊겨 PTY가 영구 일시정지하는 것을 방지.
+    // (콜드 스타트 시 IPC 미연결이면 무해하게 실패하며, 새 연결은 카운터 0으로 시작)
+    invoke("reset_pty_acks").catch(() => {});
+    return unlisten;
   });
 }
 
 /**
  * Flush any buffered output for the given ptyId into the terminal.
  * Call this right after the terminal is created/mounted.
+ * 버퍼링된 청크는 수신 시점에 이미 ack됐으므로 여기서는 ack하지 않는다.
  */
 export function flushPtyOutputBuffer(ptyId: string): void {
   const buf = pending.get(ptyId);
@@ -147,6 +207,8 @@ export function flushPtyOutputBuffer(ptyId: string): void {
     writeToTerminal(entry.terminal, text);
   }
   pending.delete(ptyId);
+  pendingBytes.delete(ptyId);
+  pendingDropped.delete(ptyId);
 }
 
 /**
@@ -186,6 +248,8 @@ export function setupPtyResizedListener(): Promise<() => void> {
  */
 export function clearPtyOutputBuffer(ptyId: string): void {
   pending.delete(ptyId);
+  pendingBytes.delete(ptyId);
+  pendingDropped.delete(ptyId);
   const timer = activityTimers.get(ptyId);
   if (timer) clearTimeout(timer);
   activityTimers.delete(ptyId);

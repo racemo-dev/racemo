@@ -91,6 +91,17 @@ impl IpcClient {
                                 );
                                 continue;
                             }
+                            ServerMessage::CommandFinished { pane_id, elapsed_ms, exit_code } => {
+                                let _ = app_handle.emit(
+                                    "pty-command-finished",
+                                    serde_json::json!({
+                                        "pane_id": pane_id,
+                                        "elapsed_ms": elapsed_ms,
+                                        "exit_code": exit_code,
+                                    }),
+                                );
+                                continue;
+                            }
                             ServerMessage::FsChange { ref events } => {
                                 let _ = app_handle.emit(
                                     "fs-change",
@@ -104,6 +115,16 @@ impl IpcClient {
                                     "session-updated",
                                     serde_json::to_value(session).unwrap_or_default(),
                                 );
+                                continue;
+                            }
+                            // Broadcast for session list changes (create/close/rename).
+                            // The desktop frontend usually learns about these via direct
+                            // request responses, but a *remote* (mobile) client can also
+                            // mutate the session list — in which case the desktop UI
+                            // must refresh from the broadcast. Emit a Tauri event so
+                            // the frontend re-fetches `list_sessions`.
+                            ServerMessage::SessionListChanged => {
+                                let _ = app_handle.emit("session-list-changed", ());
                                 continue;
                             }
                             // Server-side hosting status → forward as Tauri event
