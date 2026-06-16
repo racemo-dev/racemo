@@ -16,6 +16,19 @@ export interface CommitSuggestion {
   message: string;
 }
 
+export type AiCommitLocation = "inline" | "floating";
+
+const AI_COMMIT_LOCATION_KEY = "racemo.aiCommitLocation";
+
+const readInitialLocation = (): AiCommitLocation => {
+  try {
+    const v = localStorage.getItem(AI_COMMIT_LOCATION_KEY);
+    return v === "floating" ? "floating" : "inline";
+  } catch {
+    return "inline";
+  }
+};
+
 interface GitOutputState {
   isOpen: boolean;
   title: string;
@@ -36,6 +49,9 @@ interface GitOutputState {
   /** AI에게 보낸 프롬프트 원문 */
   prompt: string;
 
+  /** ai-commit 패널을 사이드바 인라인으로 둘지, 분리된 플로팅 패널로 띄울지 */
+  aiCommitLocation: AiCommitLocation;
+
   open: (title: string, onClose?: () => void, mode?: "terminal" | "ai-commit") => void;
   addLine: (line: string, isErr: boolean) => void;
   setStatus: (status: "running" | "success" | "error" | "cancelled") => void;
@@ -45,6 +61,7 @@ interface GitOutputState {
   setChangedFiles: (files: string[]) => void;
   setIsThinking: (v: boolean) => void;
   setPrompt: (prompt: string) => void;
+  setAiCommitLocation: (loc: AiCommitLocation) => void;
   kill: () => void;
   close: () => void;
 }
@@ -62,6 +79,7 @@ export const useGitOutputStore = create<GitOutputState>()((set, get) => ({
   changedFiles: [],
   isThinking: false,
   prompt: "",
+  aiCommitLocation: readInitialLocation(),
 
   open: (title, onClose, mode = "terminal") =>
     set({ isOpen: true, title, lines: [], status: "running", onClose: onClose ?? null, currentChannelId: null, mode, toolEntries: [], suggestions: [], changedFiles: [], isThinking: false, prompt: "" }),
@@ -86,6 +104,11 @@ export const useGitOutputStore = create<GitOutputState>()((set, get) => ({
 
   setIsThinking: (v) => set({ isThinking: v }),
   setPrompt: (prompt) => set({ prompt }),
+
+  setAiCommitLocation: (loc) => {
+    try { localStorage.setItem(AI_COMMIT_LOCATION_KEY, loc); } catch { /* ignore */ }
+    set({ aiCommitLocation: loc });
+  },
 
   kill: () => {
     const { currentChannelId } = get();

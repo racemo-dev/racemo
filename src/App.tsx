@@ -19,6 +19,7 @@ import WindowResizeHandles from "./components/WindowResizeHandles";
 import { useAppTheme } from "./hooks/useAppTheme";
 import { useGlobalListeners } from "./hooks/useGlobalListeners";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
+import { usePromptSync } from "./hooks/usePromptSync";
 import { useIpcSetupEffect } from "./hooks/useIpcSetup";
 
 // Lazy-loaded components (not needed for initial render)
@@ -138,6 +139,7 @@ function AppInner() {
   useGlobalListeners();
   useGlobalShortcuts();
   useIpcSetupEffect(setError, setGitInitProgress);
+  usePromptSync();
 
   const handleReconnect = async () => {
     setError(null);
@@ -186,7 +188,7 @@ function AppInner() {
                   key={session.id}
                   className="absolute inset-0"
                   style={{
-                    visibility: session.id === activeSessionId ? "visible" : "hidden",
+                    display: session.id === activeSessionId ? "flex" : "none",
                   }}
                 >
                   <PaneLayout node={session.rootPane} isRemote={session.isRemote} />

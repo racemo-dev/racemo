@@ -121,20 +121,24 @@ export function ExplorerContextMenu({
       >
         {t("explorer.newFolder")}
       </button>
-      <button
-        className="sb-ctx-item text-left hover:bg-[var(--bg-overlay)] transition-colors"
-        onClick={handleRename}
-      >
-        {t("explorer.rename")}
-      </button>
-      <div className="my-1" style={{ borderTop: "1px solid var(--border-default)" }} />
-      <button
-        className="w-full text-left hover:bg-[var(--bg-overlay)] transition-colors"
-        style={{ fontSize: 'var(--fs-12)', color: "var(--accent-red)", padding: "3px 12px" }}
-        onClick={handleTrash}
-      >
-        {t("explorer.moveToTrash")}
-      </button>
+      {!ctxMenu.isRoot && (
+        <>
+          <button
+            className="sb-ctx-item text-left hover:bg-[var(--bg-overlay)] transition-colors"
+            onClick={handleRename}
+          >
+            {t("explorer.rename")}
+          </button>
+          <div className="my-1" style={{ borderTop: "1px solid var(--border-default)" }} />
+          <button
+            className="w-full text-left hover:bg-[var(--bg-overlay)] transition-colors"
+            style={{ fontSize: 'var(--fs-12)', color: "var(--accent-red)", padding: "3px 12px" }}
+            onClick={handleTrash}
+          >
+            {t("explorer.moveToTrash")}
+          </button>
+        </>
+      )}
     </div>
   );
 }

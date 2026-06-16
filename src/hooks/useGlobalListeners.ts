@@ -7,6 +7,8 @@ import { usePanelEditorStore, type PanelTab } from "../stores/panelEditorStore";
 import { useGitStore } from "../stores/gitStore";
 import { setupPtyOutputListener, setupPtyResizedListener } from "../lib/ptyOutputBuffer";
 import { setupRemotePtyOutputListener, setupRemotePtyResizedListener } from "../lib/remotePtyOutputBuffer";
+import { refreshAllTerminals } from "../lib/terminalRegistry";
+import { refreshAllRemoteTerminals } from "../lib/remoteTerminalRegistry";
 import { openEditorPanel } from "../lib/editorWindow";
 import { getDefaultTerminalSize } from "../lib/terminalUtils";
 import { isTauri } from "../lib/bridge";
@@ -154,15 +156,34 @@ export function useGlobalListeners() {
     return () => { cancelled = true; unlisten?.(); };
   }, []);
 
-  // 앱 포커스 복귀 시 패널 에디터 + 탐색기 자동 갱신
+  // 앱 포커스 복귀 시 패널 에디터 + 탐색기 + xterm WebGL 글리프 캐시 갱신
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
+    // Refresh xterm renderers when the window regains focus. Chromium/Nvidia
+    // corrupts WebGL texture atlases across OS sleep/wake, which manifests as
+    // garbled CJK + symbol glyphs even though the PTY buffer is intact (the
+    // user can confirm by scrolling — fresh rows render correctly).
+    // visibilitychange alone doesn't fire on macOS sleep/wake when the window
+    // stays visible, so onFocusChanged is the reliable signal here.
+    let lastRefresh = 0;
+    const maybeRefreshTerminals = () => {
+      const now = Date.now();
+      if (now - lastRefresh < 250) return; // debounce rapid focus toggles
+      lastRefresh = now;
+      try {
+        refreshAllTerminals();
+        refreshAllRemoteTerminals();
+      } catch (e) {
+        logger.warn("[globalListeners] terminal refresh on focus failed:", e);
+      }
+    };
     getCurrentWindow().onFocusChanged(({ payload: focused }) => {
       if (focused) {
         usePanelEditorStore.getState().reloadAllNonDirtyTabs();
         dirCacheInvalidateAll();
         window.dispatchEvent(new Event(EXPLORER_REFRESH_EVENT));
+        maybeRefreshTerminals();
       }
     }).then((fn) => { if (cancelled) fn(); else unlisten = fn; });
     return () => { cancelled = true; unlisten?.(); };

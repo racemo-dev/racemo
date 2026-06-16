@@ -9,6 +9,7 @@ import GitLogPanel from "../GitLogPanel";
 import AiHistoryPanel from "../AiHistoryPanel";
 import AiLogPanel from "../AiLogPanel";
 import FileSearchPanel from "../FileSearchPanel";
+import PromptsPanel from "../../Prompts/PromptsPanel";
 import ExplorerView from "./ExplorerView";
 import { EXPLORER_REFRESH_EVENT } from "./constants";
 import {
@@ -21,6 +22,7 @@ import {
   MagnifyingGlass,
   ClockCounterClockwise,
   PushPin,
+  ListChecks,
 } from "@phosphor-icons/react";
 
 const MIN_PANEL_WIDTH = 160;
@@ -30,7 +32,7 @@ const DEFAULT_PANEL_WIDTH = 240;
 export default function SidebarPanel() {
   const activePanel = useSidebarStore((s) => s.activePanel);
   const t = useGitT();
-  const labelMap: Record<string, string> = { explorer: t("sidebar.explorer"), git: t("sidebar.gitControl"), ailog: t("sidebar.aiLog"), docs: t("sidebar.docs"), search: "Search" };
+  const labelMap: Record<string, string> = { explorer: t("sidebar.explorer"), git: t("sidebar.gitControl"), ailog: t("sidebar.aiLog"), docs: t("sidebar.docs"), search: "Search", prompts: "Prompts" };
   const label = labelMap[activePanel ?? ""] ?? (activePanel ? activePanel.charAt(0).toUpperCase() + activePanel.slice(1) : t("sidebar.explorer"));
   const iconSize = 12;
   const iconStyle = { width: 'calc(12px * var(--ui-scale))', height: 'calc(12px * var(--ui-scale))', flexShrink: 0 } as const;
@@ -40,6 +42,7 @@ export default function SidebarPanel() {
     docs: <Article size={iconSize} weight="bold" style={iconStyle} />,
     ailog: <ChatCircleDots size={iconSize} weight="bold" style={iconStyle} />,
     search: <MagnifyingGlass size={iconSize} weight="bold" style={iconStyle} />,
+    prompts: <ListChecks size={iconSize} weight="bold" style={iconStyle} />,
   };
   const headerIcon = headerIconMap[activePanel ?? ""] ?? headerIconMap.explorer;
   const [width, setWidth] = useState(DEFAULT_PANEL_WIDTH);
@@ -189,6 +192,9 @@ export default function SidebarPanel() {
         </div>
         <div className="flex-1 min-h-0" style={{ display: activePanel === "search" ? undefined : "none" }}>
           <FileSearchPanel />
+        </div>
+        <div className="flex-1 min-h-0" style={{ display: activePanel === "prompts" ? undefined : "none" }}>
+          <PromptsPanel />
         </div>
         {/* DocsView disabled — re-enable when root scan issue is fixed */}
         {/* <div className="flex-1 overflow-y-auto py-1" style={{ display: activePanel === "docs" ? undefined : "none" }}>

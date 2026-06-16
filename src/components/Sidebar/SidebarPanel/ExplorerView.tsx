@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { apiGetHomeDir, apiListDirectoryGitFiltered, apiDirHasDocs, isTauri, isRemoteSession } from "../../../lib/bridge";
 import { usePanelEditorStore } from "../../../stores/panelEditorStore";
+import { isRecentlySaved } from "../../../stores/tabUtils";
 import { useSessionStore } from "../../../stores/sessionStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { useGitStore } from "../../../stores/gitStore";
@@ -144,7 +145,7 @@ export default function ExplorerView() {
         const dir = e.path.substring(0, e.path.lastIndexOf("/"));
         changedDirs.add(dir);
         // Reload editor file if modified externally
-        if (e.kind === "modified") {
+        if (e.kind === "modified" && !isRecentlySaved(e.path)) {
           usePanelEditorStore.getState().reloadTabByPath(e.path).catch(() => {});
         }
       }
@@ -197,8 +198,19 @@ export default function ExplorerView() {
         return;
       }
 
-      // Check if dropped on a terminal (local or remote)
-      const termEl = target.closest<HTMLElement>("[data-pty-id]");
+      // Check if dropped on a terminal (local or remote).
+      // elementFromPoint can return z-index overlays (pane dimming, inactive overlay) that live
+      // outside [data-pty-id], so we fall back to bounds-checking every pane directly.
+      let termEl = target.closest<HTMLElement>("[data-pty-id]");
+      if (!termEl) {
+        for (const el of document.querySelectorAll<HTMLElement>("[data-pty-id]")) {
+          const r = el.getBoundingClientRect();
+          if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+            termEl = el;
+            break;
+          }
+        }
+      }
       if (termEl) {
         const id = termEl.dataset.ptyId;
         if (!id) return;
@@ -326,7 +338,15 @@ export default function ExplorerView() {
     inlineInput.parentPath === cwd;
 
   return (
-    <div ref={treeContainerRef} tabIndex={0} className="outline-none">
+    <div
+      ref={treeContainerRef}
+      tabIndex={0}
+      className="outline-none h-full"
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setCtxMenu({ x: e.clientX, y: e.clientY, path: normalizedCwd, isDir: true, isRoot: true });
+      }}
+    >
       <div
         className="sb-section-header flex items-center gap-1 px-2 py-1 select-none"
         style={{ letterSpacing: "0.05em" }}

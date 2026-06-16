@@ -209,6 +209,38 @@ export function useIpcSetupEffect(
       useSessionStore.getState().setSession(event.payload);
     });
 
+    // Session list mutated externally (e.g. mobile remote client created /
+    // closed a session). Re-fetch the full list so the desktop UI catches up.
+    const unlistenSessionListChanged = listen("session-list-changed", async () => {
+      try {
+        const sessions = await invoke<Session[]>("list_sessions");
+        const store = useSessionStore.getState();
+        const prevIds = new Set(store.sessions.map((s) => s.id));
+        const prevActiveId = store.activeSessionId;
+
+        const activeStillExists = prevActiveId != null &&
+          sessions.some((s) => s.id === prevActiveId);
+
+        if (!activeStillExists && sessions.length > 0) {
+          const target = sessions.find((s) => !prevIds.has(s.id)) ?? sessions[0];
+          try {
+            const attached = await invoke<Session>("attach_session", { sessionId: target.id });
+            store.setSessions(sessions.map((s) => s.id === attached.id ? attached : s));
+            store.setActiveSession(attached.id);
+            store.setFocusedPane(firstLeafId(attached.rootPane));
+          } catch (e) {
+            logger.warn("[racemo] session-list-changed attach failed:", e);
+            store.setSessions(sessions);
+            store.setActiveSession(target.id);
+          }
+        } else {
+          store.setSessions(sessions);
+        }
+      } catch (e) {
+        logger.warn("[racemo] session-list-changed refresh failed:", e);
+      }
+    });
+
     const unlistenPromise = listen("ipc-ready", tryInit);
 
     const unlistenDiscPromise = listen("ipc-disconnected", () => {
@@ -263,6 +295,7 @@ export function useIpcSetupEffect(
       cancelled = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       unlistenSessionUpdated.then(unlisten => unlisten());
+      unlistenSessionListChanged.then(unlisten => unlisten());
       unlistenPromise.then(unlisten => unlisten());
       unlistenDiscPromise.then(unlisten => unlisten());
     };

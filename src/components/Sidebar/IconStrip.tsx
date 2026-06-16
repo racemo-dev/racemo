@@ -1,3 +1,4 @@
+import { useState, useRef, useCallback } from "react";
 import { useSidebarStore, type SidebarPanel } from "../../stores/sidebarStore";
 import { useGitStore } from "../../stores/gitStore";
 import { useAuthStore } from "../../stores/authStore";
@@ -6,6 +7,7 @@ import { openSettingsWindow } from "../../lib/settingsWindow";
 import { getModLabel } from "../../lib/osUtils";
 import UserMenu from "../Auth/UserMenu";
 import LoginButton from "../Auth/LoginButton";
+import TerminalServerPopup from "./TerminalServerPopup";
 
 import {
   Files,
@@ -14,6 +16,8 @@ import {
   Gear,
   Robot,
   Tray,
+  ListChecks,
+  TerminalWindow,
 } from "@phosphor-icons/react";
 
 interface IconDef {
@@ -56,6 +60,12 @@ function buildIcons(mod: string): { top: IconDef[]; bottom: IconDef[] } {
         shortcut: `${mod}+Shift+L`,
         icon: <Robot size={22} weight="regular" style={{ width: 'calc(22px * var(--ui-scale))', height: 'calc(22px * var(--ui-scale))' }} />,
       },
+      {
+        id: "prompts",
+        title: "Prompts",
+        shortcut: `${mod}+Shift+P`,
+        icon: <ListChecks size={22} weight="regular" style={{ width: 'calc(22px * var(--ui-scale))', height: 'calc(22px * var(--ui-scale))' }} />,
+      },
     ],
     bottom: [
       {
@@ -75,7 +85,6 @@ export default function IconStrip() {
   const fileStatuses = useGitStore((s) => s.fileStatuses);
   const { user, isAuthenticated } = useAuthStore();
   const t = useGitT();
-  // 런타임에 플랫폼 감지 — 모듈 평가 시점 의존성 제거 (테스트/jsdom 호환)
   const { top: topIcons, bottom: bottomIcons } = buildIcons(getModLabel());
   const titleMap: Record<string, string> = {
     explorer: t("sidebar.explorer"),
@@ -83,7 +92,19 @@ export default function IconStrip() {
     aihistory: t("aiHistory.title"),
     ailog: t("sidebar.aiLog"),
     docs: t("sidebar.docs"),
+    prompts: "Prompts",
   };
+
+  const [popupAnchor, setPopupAnchor] = useState<{ rect: DOMRect; el: HTMLElement } | null>(null);
+  const termBtnRef = useRef<HTMLButtonElement>(null);
+
+  const handleTerminalClick = useCallback(() => {
+    setPopupAnchor((prev) => {
+      if (prev) return null;
+      const el = termBtnRef.current;
+      return el ? { rect: el.getBoundingClientRect(), el } : null;
+    });
+  }, [setPopupAnchor]);
 
   const gitChangeCount = fileStatuses
     ? fileStatuses.staged.length + fileStatuses.unstaged.length + fileStatuses.untracked.length
@@ -165,11 +186,55 @@ export default function IconStrip() {
         {topIcons.map(renderIcon)}
       </div>
       <div className="mt-auto w-full flex flex-col items-center py-2 shrink-0 overflow-visible" style={{ gap: 4 }}>
+        {/* Terminals & Servers popup button */}
+        <button
+          ref={termBtnRef}
+          onClick={handleTerminalClick}
+          className="relative flex items-center justify-center rounded cursor-pointer"
+          style={{
+            width: 'calc(28px * var(--ui-scale))',
+            height: 'calc(28px * var(--ui-scale))',
+            color: popupAnchor ? "var(--text-secondary)" : "var(--text-muted)",
+            background: "transparent",
+            border: "none",
+          }}
+          onMouseEnter={(e) => { if (!popupAnchor) (e.currentTarget as HTMLElement).style.color = "var(--text-secondary)"; }}
+          onMouseLeave={(e) => { if (!popupAnchor) (e.currentTarget as HTMLElement).style.color = "var(--text-muted)"; }}
+          title="Terminals & Servers"
+        >
+          {popupAnchor && (
+            <span
+              className="absolute pointer-events-none"
+              style={{
+                left: 'calc(-5px * var(--ui-scale))',
+                top: '10%',
+                bottom: '10%',
+                width: 'calc(2px * var(--ui-scale))',
+                borderRadius: 1,
+                background: "var(--text-secondary)",
+              }}
+            />
+          )}
+          <TerminalWindow
+            size={22}
+            weight="regular"
+            style={{ width: 'calc(22px * var(--ui-scale))', height: 'calc(22px * var(--ui-scale))', pointerEvents: "none" }}
+          />
+        </button>
+
         {bottomIcons.map(renderIcon)}
 
         {/* Auth: Login button or User avatar */}
         {isAuthenticated && user ? <UserMenu /> : <LoginButton />}
       </div>
+
+      {popupAnchor && (
+        <TerminalServerPopup
+          anchorRect={popupAnchor.rect}
+          anchorEl={popupAnchor.el}
+          onClose={() => setPopupAnchor(null)}
+        />
+      )}
     </div>
   );
 }

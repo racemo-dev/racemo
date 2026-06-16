@@ -3,6 +3,7 @@ import { apiWriteTextFile } from "../../../lib/bridge";
 import { useToastStore } from "../../../stores/toastStore";
 import { listen } from "@tauri-apps/api/event";
 import { useEditorStore } from "../../../stores/editorStore";
+import { markRecentlySaved } from "../../../stores/tabUtils";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { Code, Eye } from "@phosphor-icons/react";
 import { useGitT } from "../../../lib/i18n/git";
@@ -101,6 +102,7 @@ export default function EditorWindow() {
   const handleSave = useCallback(async () => {
     if (!activeTab) return;
     try {
+      markRecentlySaved(activeTab.path);
       await apiWriteTextFile(activeTab.path, activeTab.content);
       markSaved(activeIndex);
     } catch (e) {
@@ -116,6 +118,7 @@ export default function EditorWindow() {
       autoSaveTimer.current = setTimeout(() => {
         const tab = useEditorStore.getState().tabs[activeIndex];
         if (tab && tab.isDirty) {
+          markRecentlySaved(tab.path);
           apiWriteTextFile(tab.path, tab.content)
             .then(() => useEditorStore.getState().markSaved(activeIndex))
             .catch((e) => { logger.error(e); useToastStore.getState().show(`저장 실패: ${e}`, "error", 4000); });

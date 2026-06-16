@@ -386,7 +386,7 @@ export default function WorktreePanel() {
     try {
       // 재시도 없이 한 번만 시도. 실패하면 즉시 throw → 사용자에게 알림.
       if (deleteFolder) {
-        await remove(repoRoot, wt.path, false);
+        await remove(repoRoot, wt.path, true);
       }
 
       if (deleteBranch && wt.branch) {

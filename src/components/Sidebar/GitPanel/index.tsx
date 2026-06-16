@@ -17,6 +17,8 @@ import { useCwd } from "./shared";
 import GitBranchInfo from "./GitBranchInfo";
 import NoRepoPanel from "./NoRepoPanel";
 import GitChanges from "./GitChanges";
+import { AiCommitInline } from "../../Modals/GitOutputModal/AiCommitInline";
+import { useGitOutputStore } from "../../../stores/gitOutputStore";
 
 export default function GitPanel() {
   const cwd = useCwd();
@@ -30,6 +32,11 @@ export default function GitPanel() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [ratio1, setRatio1] = useState(0.5); // Ratio for Changes
   const [showHistory, setShowHistory] = useState(false);
+
+  const aiCommitOpen = useGitOutputStore((s) => s.isOpen);
+  const aiCommitMode = useGitOutputStore((s) => s.mode);
+  const aiCommitLocation = useGitOutputStore((s) => s.aiCommitLocation);
+  const showInlineAiCommit = aiCommitOpen && aiCommitMode === "ai-commit" && aiCommitLocation === "inline";
 
   // ESC to close history popup
   useEffect(() => {
@@ -103,7 +110,7 @@ export default function GitPanel() {
   }
 
   return (
-    <div className="flex flex-col h-full" style={{ background: "var(--bg-surface)" }}>
+    <div className="flex flex-col h-full" style={{ background: "var(--bg-surface)", position: "relative" }}>
       <GitBranchInfo cwd={cwd} onOpenHistory={() => setShowHistory((p) => !p)} />
 
       <div ref={containerRef} className="flex flex-col flex-1 min-h-0">
@@ -181,6 +188,8 @@ export default function GitPanel() {
         <GitHistoryView cwd={cwd} onClose={() => setShowHistory(false)} />
       )}
 
+      {/* AI 자동 커밋 — GitPanel 전체를 덮는 오버레이 */}
+      {showInlineAiCommit && <AiCommitInline />}
     </div>
   );
 }

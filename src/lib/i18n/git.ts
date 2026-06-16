@@ -488,6 +488,8 @@ const translations = {
   "gitOutput.abort": { en: "Abort", ko: "중단" },
   "gitOutput.hidePrompt": { en: "Hide prompt", ko: "프롬프트 숨기기" },
   "gitOutput.showPrompt": { en: "Show prompt", ko: "프롬프트 보기" },
+  "gitOutput.detach": { en: "Detach to floating panel", ko: "플로팅 패널로 분리" },
+  "gitOutput.dockToSide": { en: "Dock to sidebar", ko: "사이드바로 도크" },
 
   // ── RestoreCommandDialog ──
   "restore.title": { en: "Re-run Previous Commands", ko: "이전 명령 재실행" },

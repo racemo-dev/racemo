@@ -7,6 +7,7 @@ import { TerminalModal } from "./TerminalModal";
 export default function GitOutputModal() {
   const isOpen = useGitOutputStore((s) => s.isOpen);
   const mode = useGitOutputStore((s) => s.mode);
+  const aiCommitLocation = useGitOutputStore((s) => s.aiCommitLocation);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 560, height: 620 });
@@ -45,8 +46,12 @@ export default function GitOutputModal() {
 
   if (!isOpen) return null;
 
+  // ai-commit + inline 모드는 사이드바 CommitForm 안에서 렌더하므로 여기선 아무것도 띄우지 않는다.
+  if (mode === "ai-commit" && aiCommitLocation === "inline") return null;
+
   return <>
-    <BrowserHideGuard />
+    {/* ai-commit 플로팅 패널은 작은 비차단 패널이라 뒤의 브라우저 웹뷰를 숨길 필요가 없다 */}
+    {mode !== "ai-commit" && <BrowserHideGuard />}
     {mode === "ai-commit"
       ? <AiCommitModal size={size} setSize={setSize} onResizeMouseDown={onResizeMouseDown} justResized={justResized} />
       : <TerminalModal size={size} setSize={setSize} onResizeMouseDown={onResizeMouseDown} scrollRef={scrollRef as React.RefObject<HTMLDivElement>} justResized={justResized} />}

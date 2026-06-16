@@ -18,6 +18,8 @@ interface SessionStore {
   tabBadges: Record<string, number>;
   /** ptyId → true when a command is running AND producing output */
   paneActive: Record<string, boolean>;
+  /** ptyId → last executed command */
+  paneLastCommands: Record<string, string>;
   /** sessionId → pinned cwd (explorer stays at this path) */
   pinnedCwds: Record<string, string>;
   isIpcReady: boolean;
@@ -28,6 +30,7 @@ interface SessionStore {
   setPaneCwd: (ptyId: string, cwd: string) => void;
   setPaneShellType: (ptyId: string, shellType: ShellType) => void;
   setPaneActive: (ptyId: string, active: boolean) => void;
+  setPaneLastCommand: (ptyId: string, command: string) => void;
   setSessions: (sessions: Session[]) => void;
   setActiveSession: (sessionId: string) => void;
   updateSession: (session: Session) => void;
@@ -64,6 +67,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   paneShellTypes: {},
   tabBadges: {},
   paneActive: {},
+  paneLastCommands: {},
   pinnedCwds: {},
   isIpcReady: false,
 
@@ -93,6 +97,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   setPaneActive: (ptyId, active) =>
     set((state) => ({
       paneActive: { ...state.paneActive, [ptyId]: active },
+    })),
+
+  setPaneLastCommand: (ptyId, command) =>
+    set((state) => ({
+      paneLastCommands: { ...state.paneLastCommands, [ptyId]: command },
     })),
 
   nextTabName: () => {

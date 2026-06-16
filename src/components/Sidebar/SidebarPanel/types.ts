@@ -8,6 +8,7 @@ export interface ContextMenuState {
   y: number;
   path: string;
   isDir: boolean;
+  isRoot?: boolean;
 }
 
 export type InlineInputMode = "new-file" | "new-dir" | "rename";

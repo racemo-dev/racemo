@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type SidebarPanel = "explorer" | "docs" | "git" | "ailog" | "search" | "aihistory";
+export type SidebarPanel = "explorer" | "docs" | "git" | "ailog" | "search" | "aihistory" | "prompts";
 
 /** @deprecated Use "ailog" instead. Kept for localStorage migration. */
 export type LegacySidebarPanel = "claudelog" | "codexlog" | "geminilog";

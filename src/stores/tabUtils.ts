@@ -46,3 +46,23 @@ export function moveTab<T>(tabs: T[], from: number, to: number, activeIndex: num
 export function findTabIndexByPath<T extends { path: string }>(tabs: T[], path: string): number {
   return tabs.findIndex((t) => t.path === path);
 }
+
+/**
+ * Track paths recently saved by the editor so fs-change reload can be skipped.
+ * Prevents cursor-reset: auto-save writes file → fs watcher fires → reloadTabByPath
+ * would re-read the file and call replaceAll(), losing cursor position.
+ */
+const recentlySaved = new Map<string, number>();
+const SAVE_COOLDOWN_MS = 2000;
+
+export function markRecentlySaved(path: string): void {
+  recentlySaved.set(path, Date.now());
+}
+
+export function isRecentlySaved(path: string): boolean {
+  const ts = recentlySaved.get(path);
+  if (!ts) return false;
+  if (Date.now() - ts < SAVE_COOLDOWN_MS) return true;
+  recentlySaved.delete(path);
+  return false;
+}

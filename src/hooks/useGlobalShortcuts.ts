@@ -10,21 +10,30 @@ import { useHistoryStore } from "../stores/historyStore";
 import { usePrivacyStore } from "../stores/privacyStore";
 import { useRemoteStore } from "../stores/remoteStore";
 import { useSidebarStore } from "../stores/sidebarStore";
-import { applyFontSizeToAll } from "../lib/terminalRegistry";
-import { applyFontSizeToAllRemote } from "../lib/remoteTerminalRegistry";
-import { firstLeafId, collectPtyIds } from "../lib/paneTreeUtils";
+import { useToastStore } from "../stores/toastStore";
+import { applyFontSizeToAll, recoverAllTerminals } from "../lib/terminalRegistry";
+import { applyFontSizeToAllRemote, recoverAllRemoteTerminals } from "../lib/remoteTerminalRegistry";
+import { firstLeafId, collectPtyIds, navigatePane, type NavDirection } from "../lib/paneTreeUtils";
 import { openSettingsWindow } from "../lib/settingsWindow";
 import { getDefaultTerminalSize } from "../lib/terminalUtils";
-import { isModKey } from "../lib/osUtils";
+import { isMac, isModKey } from "../lib/osUtils";
 import type { Session } from "../types/session";
 import { logger } from "../lib/logger";
 
+const ARROW_MAP: Partial<Record<string, NavDirection>> = {
+  ArrowLeft: "left",
+  ArrowRight: "right",
+  ArrowUp: "up",
+  ArrowDown: "down",
+};
+
 // VSCode 스타일 사이드바 단축키 — KeyboardEvent.code → SidebarPanel
-const SIDEBAR_KEY_MAP: Partial<Record<string, "explorer" | "git" | "aihistory" | "ailog">> = {
+const SIDEBAR_KEY_MAP: Partial<Record<string, "explorer" | "git" | "aihistory" | "ailog" | "prompts">> = {
   KeyE: "explorer",
   KeyG: "git",
   KeyH: "aihistory",
   KeyL: "ailog",
+  KeyP: "prompts",
 };
 
 /**
@@ -39,6 +48,42 @@ export function useGlobalShortcuts() {
         if (target.closest(".cm-editor")) return;
         e.preventDefault();
         e.stopPropagation();
+        return;
+      }
+
+      // Diagnostic: surface every modifier+R press via console.log (not
+      // logger.debug — that one is stripped in production builds). If nothing
+      // shows in devtools console even on a release build, the key is being
+      // swallowed by the OS / another app before it ever reaches the webview.
+      // TODO: remove after the WebGL recovery shortcut is confirmed working.
+      if (e.code === "KeyR" && (e.metaKey || e.ctrlKey || e.altKey)) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[shortcut] KeyR meta=${e.metaKey} ctrl=${e.ctrlKey} alt=${e.altKey} shift=${e.shiftKey}`,
+        );
+      }
+
+      // Cmd+Shift+R (Mac) / Ctrl+Shift+R (Win/Linux)  OR
+      // Cmd+Option+R (Mac) / Ctrl+Alt+R (Win/Linux) — alternative for users
+      // whose Shift+R conflicts with another app (CleanShot, BTT, etc.).
+      // Both bindings run heavy recovery: dispose + recreate WebglAddon —
+      // same effect a window resize triggers internally. The lighter
+      // `clearTextureAtlas + refresh` path isn't enough when the GL context
+      // is soft-degraded or the addon's glyph→slot cache is desynced.
+      const isShiftR = isModKey(e) && e.shiftKey && e.code === "KeyR";
+      const isAltR = isMac()
+        ? e.metaKey && e.altKey && !e.ctrlKey && !e.shiftKey && e.code === "KeyR"
+        : e.ctrlKey && e.altKey && !e.metaKey && !e.shiftKey && e.code === "KeyR";
+      if (isShiftR || isAltR) {
+        e.preventDefault();
+        e.stopPropagation();
+        const local = recoverAllTerminals();
+        const remote = recoverAllRemoteTerminals();
+        useToastStore.getState().show(
+          `터미널 재초기화 — 로컬 ${local}, 원격 ${remote}`,
+          "info",
+          1800,
+        );
         return;
       }
 
@@ -110,6 +155,25 @@ export function useGlobalShortcuts() {
           }
           return;
         }
+      }
+
+      // Cmd+Arrow: navigate between panes
+      if (isModKey(e) && !e.shiftKey && ARROW_MAP[e.code]) {
+        const target = e.target as HTMLElement;
+        if (!target.closest(".cm-editor, input, textarea, [contenteditable=true]")) {
+          const { sessions, activeSessionId, focusedPaneId, setFocusedPane } = useSessionStore.getState();
+          const session = sessions.find((s) => s.id === activeSessionId);
+          if (session && focusedPaneId) {
+            const nextId = navigatePane(session.rootPane, focusedPaneId, ARROW_MAP[e.code]!);
+            if (nextId) {
+              e.preventDefault();
+              e.stopPropagation();
+              setFocusedPane(nextId);
+              return;
+            }
+          }
+        }
+        return;
       }
 
       if (!isModKey(e)) return;

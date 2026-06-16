@@ -2,6 +2,7 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import { apiWriteTextFile } from "../../../lib/bridge";
 import { X, ArrowLeft, ArrowRight, ArrowSquareOut, Code, Eye, Globe } from "@phosphor-icons/react";
 import { usePanelEditorStore, type BrowserPanelTab } from "../../../stores/panelEditorStore";
+import { markRecentlySaved } from "../../../stores/tabUtils";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { hideAllBrowserWebviews, destroyBrowserWebview, destroyAllBrowserWebviews } from "../BrowserViewer";
 import { openEditorExternalWindow, notifyRemoteEditorClose } from "../../../lib/editorWindow";
@@ -184,6 +185,7 @@ export default function InlineEditorPanel({ fullWidth = false }: { fullWidth?: b
   const handleSave = useCallback(async () => {
     if (!activeTab || activeTab.type === "diff" || activeTab.type === "browser") return;
     try {
+      markRecentlySaved(activeTab.path);
       await apiWriteTextFile(activeTab.path, activeTab.content);
       markSaved(activeIndex);
     } catch (e) {
@@ -204,6 +206,7 @@ export default function InlineEditorPanel({ fullWidth = false }: { fullWidth?: b
         if (idx < 0) return;
         const tab = state.tabs[idx];
         if (tab && tab.type !== "diff" && tab.type !== "browser" && tab.isDirty) {
+          markRecentlySaved(tab.path);
           apiWriteTextFile(tab.path, tab.content)
             .then(() => usePanelEditorStore.getState().markSaved(idx))
             .catch((e) => { logger.error(e); useToastStore.getState().show(`저장 실패: ${e}`, "error", 4000); });
