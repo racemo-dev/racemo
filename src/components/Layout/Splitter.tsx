@@ -95,12 +95,12 @@ export default function Splitter({ splitId, direction }: SplitterProps) {
       }`}
       style={{ background: "var(--border-subtle)" }}
     >
-      {/* Invisible wider hit area */}
+      {/* Invisible wider hit area — z-10 so it isn't covered by the next sibling pane */}
       <div
-        className={`absolute ${
+        className={`absolute z-10 ${
           isHorizontal
-            ? "top-0 bottom-0 -left-2 -right-2"
-            : "left-0 right-0 -top-2 -bottom-2"
+            ? "top-0 bottom-0 -left-3 -right-3"
+            : "left-0 right-0 -top-3 -bottom-3"
         }`}
       />
     </div>

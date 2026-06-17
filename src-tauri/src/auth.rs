@@ -243,8 +243,8 @@ fn write_vault_windows(tmp_path: &std::path::Path, blob: &[u8]) -> Result<(), St
                     let stderr = String::from_utf8_lossy(&out.stderr);
                     log::warn!(
                         target: "auth::vault",
-                        code = ?out.status.code(),
-                        "icacls failed to tighten vault ACL; file may be world-readable: {stderr}"
+                        "icacls failed to tighten vault ACL (exit code {:?}); file may be world-readable: {stderr}",
+                        out.status.code(),
                     );
                 }
                 Err(e) => {
