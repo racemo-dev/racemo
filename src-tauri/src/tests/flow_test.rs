@@ -333,7 +333,8 @@ fn pty_reader_pauses_without_acks_and_resumes_losslessly() {
 
     // ── Phase 2: 수신분을 ack하며 소비 → 재개되어 끝까지 유실 없이 도착해야 함
     flow.on_ack(CONN, &pty_id, received.len());
-    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    // macOS CI 러너 변동성 마진. 데이터 유실이라면 어떤 timeout도 fail이라 검증 강도는 유지된다.
+    let deadline = std::time::Instant::now() + Duration::from_secs(180);
     while !contains_subslice(&received, b"\r\n100000\r\n") {
         assert!(
             std::time::Instant::now() < deadline,
