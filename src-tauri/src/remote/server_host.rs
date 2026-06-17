@@ -1499,6 +1499,7 @@ enum BridgeAction {
 }
 
 /// Run the bridge loop: forward broadcast messages to data channels, handle heartbeat/shutdown/DC close.
+#[allow(clippy::too_many_arguments)]
 async fn run_bridge_loop(
     broadcast_tx: &broadcast::Sender<ServerMessage>,
     data_channels: &[Arc<RTCDataChannel>],
