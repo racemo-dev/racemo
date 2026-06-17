@@ -119,7 +119,9 @@ Per-platform release pipeline:
 | macOS    | Local script (maintainer machine) | `gh-local-release-mac.sh` |
 | Windows  | Local script (maintainer machine, Certum code signing) | `gh-local-release-windows.ps1` |
 
-Linux releases are fully automated — pushing a `v*` tag triggers a build and uploads artifacts (`.AppImage`, `.AppImage.sig`, `.deb`) to the GitHub Release as a draft. macOS and Windows are released from a maintainer's machine because they require platform-specific code signing setup.
+Linux releases are fully automated — pushing a `v*` tag triggers a build and uploads `.AppImage` artifacts (x64 + aarch64) to the GitHub Release. `.deb` is currently disabled because the Tauri updater cannot replace `.deb` packages in-place; APT repo support is a future option. macOS and Windows are released from a maintainer's machine because they require platform-specific code signing setup.
+
+Full maintainer procedure (sync, build, tag, publish, troubleshooting) lives in [docs-dev/RELEASE.md](docs-dev/RELEASE.md). The single-command automation is `/release <version>` (see [`.claude/commands/release.md`](.claude/commands/release.md)).
 
 ## License
 

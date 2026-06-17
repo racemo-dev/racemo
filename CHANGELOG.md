@@ -4,6 +4,44 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.0.9] - 2026-06-17
+
+### Added
+- **Bottom terminal input bar (`TerminalInputBar`)** with image DnD attach, double-enter send, and inline `/clear` and close buttons.
+- **AI commit panel** redesigned as a draggable non-blocking floating panel with inline/dock modes, promoted to a full GitPanel overlay. Auto-generate commit messages and query commit patches over the remote API.
+- **Image compression for AI**: progress spinner and savings popup on attachment thumbnails; new `compress_image_for_ai` command.
+- **Mobile sync v2 (remote)**: command-completion notifications, pull-based prompt model, persistent `device_id` across restarts; desktop ↔ mobile prompts WS sync pipeline.
+- **Prompt management sidebar** with testing-status, folder filter, and folder tag UI. Persisted store moved to the Tauri filesystem.
+- **Remote file API expansion**: `read_file` range reads, `file_stat`, `write_file` `createParents` + base64, deep-path validation.
+- **Remote editor sync**: open/close tabs and saved files reflected on the host; diff viewing with `contextLines` in remote sessions.
+- **Worktree DataChannel API** with deep-path validation; chunked `ApiResponse` to prevent SCTP drops on large payloads.
+- **Presence pipeline**: desktop presence loop, `update_sessions` WS push to signaling, presence channel split, remote share start.
+- **PTY ack-based flow control** + alt-screen scrollback separation, child-process cleanup, history expanded to 1 MB with ESC-safe trim.
+- **Heavy terminal recovery shortcut** and per-pane last-executed-command persistence.
+- **Pane navigation**: `Cmd+Arrow` to move between panes; tab-close confirmation dialog on closing the last pane.
+- **Terminals & Servers popup** in the sidebar; explorer empty-area context menu; file/folder tooltips; recent folders show full path with double-click to open in a new tab.
+- **Diff in editor**: diff view moved from an overlay popup to an editor panel tab.
+- **Signaling 24h keepalive ping** to avoid Supabase free-plan suspension.
+- **WebGL glyph recovery command** + Toast UI restoration.
+
+### Changed
+- **Prompts storage** migrated to the Tauri filesystem (away from `localStorage`).
+- **Local HTTP REST API removed** — the axum server on port 7399 is gone; everything goes through the IPC client.
+- **Command palette** snippet feature removed (was unused).
+
+### Fixed
+- **xterm WebGL atlas merge** glyph corruption fixed at the root, with a recovery mechanism; CJK glyph refresh on addon load; resize `NaN` guard and ghost-text artifact cleanup; canvas refresh after pane close.
+- **PTY resize / history**: restored history no longer wiped by the initial `clear`; resize min-clamp removed and duplicate history send prevented; `PtyHistoryRequest` split from `ResizeRequest` with single-lock query and uniform error handling.
+- **Terminal input**: Enter on empty input sends a newline; `^[OA` print after abnormal exit fixed; IME interceptor guards the new input bar textarea.
+- **Drag & drop**: double-firing on the input bar fixed; hit-test scoped to current pane container; z-index / physical-pixel mismatch false positives resolved; file DnD allowed on inactive panes; image drop no longer force-opens a closed input bar.
+- **Worktree**: recursive flag restored on folder delete; root directory context menu hides rename/trash.
+- **Sessions**: `session-list-changed` stale snapshot and double `setSessions` fixed; inactive session hiding switched to `display:none`; `PtyExit` no longer kills the whole connection.
+- **Remote**: Windows HOME-external path access restriction restored; `PtyResized` delivered to mobile clients; browser client `PtyHistoryRequest` send method added; API errors logged on the server.
+- **Signaling**: `host_disconnect` sends `shutting_down` to mobile + session-change tracing; JWT expiry refreshes the token instead of forcing logout; Fly.io idle-machine shutdown prevented via self-ping; WS connection sends `Origin` header; host plan verification moved to DB query; WebRTC signal types added to the relay allowlist; 403 message generalized.
+- **Editor**: auto-save no longer triggers fs-watcher reload (cursor reset gone); save failures surface as toasts; resize ratio preserved; file saves unified through `apiWriteTextFile` for remote sessions.
+- **Browser viewer**: popup layers no longer hidden behind the webview; browser panel uses full width when there is no session.
+- **Diff viewer**: UI-scale support and header layout fixes.
+
 ## [0.0.8] - 2026-04-17
 
 ### Added
